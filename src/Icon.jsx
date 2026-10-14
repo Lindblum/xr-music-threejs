@@ -1,0 +1,154 @@
+import music from 'lineicons/assets/svgs/regular/music.svg?raw';
+import sliders from 'lineicons/assets/svgs/regular/sliders-horizontal-square-2.svg?raw';
+import arrowLeft from 'lineicons/assets/svgs/regular/arrow-left.svg?raw';
+import arrowRight from 'lineicons/assets/svgs/regular/arrow-right.svg?raw';
+import chevronDown from 'lineicons/assets/svgs/regular/chevron-down.svg?raw';
+import chevronUp from 'lineicons/assets/svgs/regular/chevron-up.svg?raw';
+import check from 'lineicons/assets/svgs/regular/check.svg?raw';
+import gear from 'lineicons/assets/svgs/regular/gear-1.svg?raw';
+import picture from 'lineicons/assets/svgs/regular/gallery.svg?raw';
+import globe from 'lineicons/assets/svgs/regular/globe-1.svg?raw';
+
+// Lineicons ship with a fixed fill; recolour to follow the surrounding text
+// and size to the font.
+const recolour = (svg) =>
+  svg
+    .replace(/fill="#323544"/g, 'fill="currentColor"')
+    .replace(/\swidth="\d+"\sheight="\d+"/, ' width="1.25em" height="1.25em" aria-hidden="true"');
+
+// The free Lineicons set has no VR headset (its "oculus" icon is the brand
+// wordmark) and nothing for scales, key signatures or echo, so these are
+// drawn to match: 24px grid, 1.5px rounded strokes.
+const headset = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M5.5 7h13A2.5 2.5 0 0 1 21 9.5v5a2.5 2.5 0 0 1-2.5 2.5h-3.13a1.5 1.5 0 0 1-1.3-.76l-.77-1.35a1.5 1.5 0 0 0-2.6 0l-.77 1.35a1.5 1.5 0 0 1-1.3.76H5.5A2.5 2.5 0 0 1 3 14.5v-5A2.5 2.5 0 0 1 5.5 7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M3 11.5H1.75M21 11.5h1.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
+const monitor = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.75" y="4.25" width="18.5" height="12" rx="1.75" stroke="currentColor" stroke-width="1.5"/>
+<path d="M12 16.25v3.5M8.5 19.75h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
+// 3D: SBS: the screen split in two, an eye in each half
+const monitorSbs = monitor.replace(
+  '</svg>',
+  `<path d="M12 6v8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="7.4" cy="10.25" r="1.4" fill="currentColor"/>
+<circle cx="16.6" cy="10.25" r="1.4" fill="currentColor"/>
+</svg>`,
+);
+
+// 3D: Interlaced: the screen in alternating rows
+const monitorInterlaced = monitor.replace(
+  '</svg>',
+  `<path d="M5.5 7.25h13M5.5 10.25h13M5.5 13.25h13" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M5.5 8.75h13M5.5 11.75h13" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-opacity="0.4"/>
+</svg>`,
+);
+
+// Phone views: a phone, and a phone turned sideways in a viewer (two lenses)
+const phone = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<rect x="6.75" y="2.75" width="10.5" height="18.5" rx="2" stroke="currentColor" stroke-width="1.5"/>
+<path d="M10.75 18.25h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
+const phoneViewer = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.75" y="6.75" width="18.5" height="10.5" rx="2" stroke="currentColor" stroke-width="1.5"/>
+<path d="M12 6.75v10.5" stroke="currentColor" stroke-width="1.5"/>
+<circle cx="7.4" cy="12" r="2.1" stroke="currentColor" stroke-width="1.5"/>
+<circle cx="16.6" cy="12" r="2.1" stroke="currentColor" stroke-width="1.5"/>
+</svg>`;
+
+// Video: the screen playing
+const video = monitor.replace(
+  '</svg>',
+  `<path d="M10.25 7.6v5.3l4.4-2.65-4.4-2.65Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
+</svg>`,
+);
+
+// Solid background: a filled rectangle
+const solid = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.75" y="5" width="18.5" height="14" rx="1.5" fill="currentColor" fill-opacity="0.35" stroke="currentColor" stroke-width="1.5"/>
+</svg>`;
+
+// Scale: notes climbing a staff
+const scale = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M1.5 6.5h21M1.5 12h21M1.5 17.5h21" stroke="currentColor" stroke-width="1" stroke-opacity="0.4"/>
+<ellipse cx="5" cy="17.5" rx="3" ry="2.2" transform="rotate(-20 5 17.5)" fill="currentColor"/>
+<ellipse cx="12" cy="12" rx="3" ry="2.2" transform="rotate(-20 12 12)" fill="currentColor"/>
+<ellipse cx="19" cy="6.5" rx="3" ry="2.2" transform="rotate(-20 19 6.5)" fill="currentColor"/>
+</svg>`;
+
+// Key: a sharp sign, as in a key signature
+const keySignature = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M9.5 3.5v17.5M14.5 3v17.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M5 10.25l14-2.5M5 16.75l14-2.5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>`;
+
+// Echo: a sound and its repeats, each fainter and shorter
+const echo = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M3.5 3.5v17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+<path d="M9 6.5v11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75"/>
+<path d="M14.5 9v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-opacity="0.5"/>
+<path d="M20 10.75v2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-opacity="0.3"/>
+</svg>`;
+
+// Echo off: the sound alone, then silence
+const echoOff = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M3.5 3.5v17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+<path d="M8.5 12h12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="1.5 3" stroke-opacity="0.6"/>
+</svg>`;
+
+// Instruments. A synth shows the wave its oscillator plays, one period of it;
+// a sample shows a recorded clip, an uneven waveform that swells and fades.
+const wave = (d) => `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="${d}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+const sine = wave('M2.5 12c2.4-7.5 7.1-7.5 9.5 0s7.1 7.5 9.5 0');
+const triangle = wave('M2.5 12 7.25 5l9.5 14 4.75-7');
+const sawtooth = wave('M2.5 16.5 12 7.5v9l9.5-9v9');
+const square = wave('M2.5 12V6.5H12v11h9.5V12');
+const sample = wave('M3 11v2M6 9v6M9 5v14M12 7.5v9M15 9.5v5M18 10.75v2.5M21 11.5v1');
+
+const ICONS = {
+  instrument: recolour(music),
+  sample,
+  sine,
+  triangle,
+  sawtooth,
+  square,
+  scale,
+  key: keySignature,
+  tuning: recolour(sliders),
+  echo,
+  echoOff,
+  video,
+  // Back, and its mirror marking a button that opens a submenu
+  back: recolour(arrowLeft),
+  forward: recolour(arrowRight),
+  // a dropdown, closed and open, and the chosen option in its list
+  dropdown: recolour(chevronDown),
+  dropdownOpen: recolour(chevronUp),
+  check: recolour(check),
+  gear: recolour(gear),
+  solid,
+  skybox: recolour(globe),
+  passthrough: recolour(picture),
+  monitor,
+  monitorSbs,
+  monitorInterlaced,
+  vr: headset,
+  phone,
+  phoneViewer,
+};
+
+/** An icon as a standalone SVG in a fixed colour, for drawing onto a canvas. */
+export function iconSvg(name, color = '#ffffff') {
+  return (ICONS[name] ?? '')
+    .replace(/currentColor/g, color)
+    .replace(/width="1\.25em" height="1\.25em"/, 'width="96" height="96"');
+}
+
+export default function Icon({ name }) {
+  return <span className="icon" dangerouslySetInnerHTML={{ __html: ICONS[name] }} />;
+}

@@ -47,7 +47,7 @@ The options panel has two submenus, each marked with an arrow. **Music** holds I
 | Feel the frame | — | Touch it with a controller tip: a light tap, then a soft hum while you stay on it. It glows while touched |
 | Move / turn the Fretboard | — | Put a controller tip on the frame and hold the grip. The Fretboard follows that hand, moving and turning with it |
 | Scale / turn the Fretboard | — | Hold both grips on the frame (as in Tilt Brush). Pull your hands apart or push them together to scale it, and turn the line between them to rotate it |
-| The panel in XR | — | With VR controllers it rides on the left controller, like a palette held in that hand: press its buttons with the right controller's ray. Without them (hand tracking, phones) it floats to your left; point at it and hold the grip to move it |
+| The panel in XR | — | With VR controllers it starts on the left controller, like a palette held in that hand: press its buttons with the right controller's ray. Point at it and hold the grip to take it (with a click); let go near the other controller to dock it there, near the Fretboard to dock it against the frame's nearest edge (it then moves with the Fretboard), or anywhere else to leave it floating. Docking clicks and buzzes the controller it lands on. Without controllers (hand tracking, phones) it floats to your left |
 | Background: Solid / Skybox / Passthrough | Video. Solid and Skybox are the 4D viewer's: a dark grey, or the starry sky | Video. Passthrough switches live in an AR session |
 | View Mode | Video. **3D: SBS** is half side-by-side stereo for 3D TVs and projectors; hovering works in either half. **3D: Interlaced** puts the left eye on every other row (starting at the top) and the right eye between, for passive polarised 3D monitors | Video. **XR: Headset** on headsets. On phones, as in the 4D viewer: **XR: Phone AR** (one view) and **XR: Phone Viewer** (two lens-corrected eyes for a phone viewer), tracked by ARCore, or steered by the motion sensors where there is no AR. Choose a windowed mode to leave XR |
 
@@ -59,7 +59,7 @@ Instruments are samples played back at the note's pitch: Trombone, Piano, Banjo,
 - `src/Scene.jsx`: lights and shadow floor, backdrop, the board, locomotion, and who is touching which note
 - `src/Fretboard.jsx`: the Fretboard object: the note cubes and their labels, the frame, and the touch tests
 - `src/Touch.jsx`: controller and hand mallets, the haptic pulses for notes and the frame, and gaze play for phones
-- `src/Grab.jsx`, `src/grip.js`: grip-button controls that take hold of the frame to move, turn and scale the Fretboard, or carry the panel
+- `src/Grab.jsx`, `src/grip.js`: grip-button controls that take hold of the frame to move, turn and scale the Fretboard, or carry the panel and dock it to a controller or the frame
 - `src/audio.js`: the Web Audio engine: sample loading, playback, the oscillator voices and the echo
 - `src/pitch.js`: pitch detection for samples (McLeod pitch method)
 - `src/music.js`: note names, colours, scales and tunings

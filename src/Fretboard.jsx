@@ -195,7 +195,7 @@ const FRAME_TOUCHED = new THREE.Color('#3355ff').multiplyScalar(0.35);
 const FRAME_HELD = new THREE.Color('#3355ff').multiplyScalar(0.7);
 
 /** Half-sizes of the frame's opening and of its outside, in Fretboard space. */
-function frameSize(strings) {
+export function frameSize(strings) {
   const innerX = (FRETS * SPACING) / 2 + FRAME_MARGIN;
   const innerY = (strings * SPACING) / 2 + FRAME_MARGIN;
   return { innerX, innerY, outerX: innerX + FRAME_BORDER, outerY: innerY + FRAME_BORDER };
@@ -248,6 +248,14 @@ export function touchesFrame(board, strings, world, radius) {
   const y = Math.abs(_local.y);
   if (Math.abs(_local.z) > FRAME_DEPTH / 2 + r || x > outerX + r || y > outerY + r) return false;
   return x > innerX - r || y > innerY - r; // on the moulding, not in the opening
+}
+
+/** Whether `world` is within `reach` metres of a Fretboard's frame or anything inside it. */
+export function nearFrame(board, strings, world, reach) {
+  board.worldToLocal(_local.copy(world));
+  const r = reach / board.scale.x;
+  const { outerX, outerY } = frameSize(strings);
+  return Math.abs(_local.x) < outerX + r && Math.abs(_local.y) < outerY + r && Math.abs(_local.z) < r;
 }
 
 /**

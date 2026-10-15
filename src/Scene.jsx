@@ -26,37 +26,9 @@ const MENU_POSITION = [-0.65, 1.05, 0.05];
 const MENU_ROTATION = [0, 0.9, 0];
 // a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
 const PHONE_STEREO_MENU_SCALE = 1.5;
-// With VR controllers the panel rides on the left one, like a palette held in
-// that hand: above the controller, tilted back toward the face, half size.
-// The right controller's ray presses its buttons. In grip space, -Z points
-// forward out of the controller and +Y up out of its top.
-const DOCK_POSITION = [0, 0.17, -0.02];
-const DOCK_ROTATION = [-0.35, 0, 0];
-const DOCK_SCALE = 0.5;
-
-/**
- * Follows the left controller's grip each frame. A child of the XROrigin, so
- * the grip pose (relative to the session's reference space) applies as is.
- * Hidden while the controller isn't tracked.
- */
-function LeftControllerDock({ children }) {
-  const gl = useThree((s) => s.gl);
-  const dock = useRef(null);
-  useFrame((_, __, frame) => {
-    const group = dock.current;
-    if (!group) return;
-    const referenceSpace = gl.xr.getReferenceSpace();
-    const source = frame && [...frame.session.inputSources].find((s) => s.handedness === 'left' && s.gripSpace && !s.hand);
-    const pose = source && referenceSpace && frame.getPose(source.gripSpace, referenceSpace);
-    group.visible = Boolean(pose);
-    if (pose) group.matrix.fromArray(pose.transform.matrix);
-  });
-  return (
-    <group ref={dock} matrixAutoUpdate={false}>
-      {children}
-    </group>
-  );
-}
+// With VR controllers the panel starts docked on the left one, like a palette
+// held in that hand, and the right controller's ray presses its buttons. A
+// grip takes it to dock on either controller or the Fretboard's frame (see Grab.jsx).
 
 const SKY_URL = `${import.meta.env.BASE_URL}img/skybox.jpg`;
 
@@ -165,9 +137,9 @@ const _head = new THREE.Vector3();
 /**
  * Left thumbstick moves, right thumbstick turns smoothly about the head.
  * The grip buttons, on the Fretboard's frame, move, turn and scale it, or
- * carry the panel. The panel travels with the player.
+ * carry and dock the panel. An undocked panel travels with the player.
  */
-function Player({ origin, board, menu, strings, handles, children }) {
+function Player({ origin, board, menu, menuDock, strings, handles, children }) {
   useXRControllerLocomotion(
     (velocity, turn, delta, state) => {
       const o = origin.current;
@@ -187,7 +159,7 @@ function Player({ origin, board, menu, strings, handles, children }) {
     { speed: 1.5 },
     { type: 'smooth', speed: 1.5 },
   );
-  useControllerGrips({ board, menu, origin, strings, handles });
+  useControllerGrips({ board, menu, menuDock, origin, strings, handles });
   return <XROrigin ref={origin}>{children}</XROrigin>;
 }
 
@@ -231,7 +203,7 @@ export default function Scene({ cells, state, menu, phone, holding }) {
   const phoneStereo = phone && inAR && state.stereo;
   // a phone has no controllers: it plays by gaze, and a 1-second stare clicks the panel
   const hasControllers = useXR((s) => s.inputSourceStates.some((input) => input.type === 'controller'));
-  const docked = useXR((s) =>
+  const leftController = useXR((s) =>
     s.inputSourceStates.some((input) => input.type === 'controller' && input.inputSource.handedness === 'left'),
   );
   const immersive = inSession || state.handheld;
@@ -242,6 +214,7 @@ export default function Scene({ cells, state, menu, phone, holding }) {
   const board = useRef(null);
   const origin = useRef(null);
   const menuPanel = useRef(null);
+  const menuDock = useRef({ to: null, placed: false }); // where the panel is docked: see Grab.jsx
   const handles = useRef({ touching: {}, holding: {} }); // hands on the frame: see Touch.jsx and Grab.jsx
   const strings = cells.length / FRETS;
   const [touches, press] = useTouches(cells, state.instrument);
@@ -258,6 +231,25 @@ export default function Scene({ cells, state, menu, phone, holding }) {
     board.current.quaternion.identity();
     board.current.scale.setScalar(1);
   }, [inSession]);
+
+  // controllers arriving dock a panel the player hasn't moved on the left one (or the right, if
+  // that's all there is); losing them all (to hand tracking) frees a controller-docked panel
+  useEffect(() => {
+    const dock = menuDock.current;
+    if (!inSession) {
+      Object.assign(dock, { to: null, placed: false });
+    } else if (hasControllers) {
+      if (!dock.to && !dock.placed) dock.to = leftController ? 'left' : 'right';
+    } else if (dock.to === 'left' || dock.to === 'right') {
+      dock.to = null;
+      const panel = menuPanel.current;
+      if (!panel) return;
+      panel.position.fromArray(MENU_POSITION);
+      panel.rotation.fromArray(MENU_ROTATION);
+      panel.scale.setScalar(1);
+      panel.visible = true;
+    }
+  }, [inSession, hasControllers, leftController]);
 
   return (
     <>
@@ -294,22 +286,16 @@ export default function Scene({ cells, state, menu, phone, holding }) {
       />
       {inSession && <TouchPlay board={board} origin={origin} cells={cells} press={press} handles={handles} />}
       {immersive && !hasControllers && <GazePlay board={board} cells={cells} press={press} holding={holding} />}
-      <Player origin={origin} board={board} menu={menuPanel} strings={strings} handles={handles}>
-        {immersive &&
-          (docked && inSession ? (
-            // no groupRef: a docked panel can't be carried off by a grip
-            <LeftControllerDock>
-              <XRMenuPanel {...menu} position={DOCK_POSITION} rotation={DOCK_ROTATION} scale={DOCK_SCALE} />
-            </LeftControllerDock>
-          ) : (
-            <XRMenuPanel
-              {...menu}
-              groupRef={menuPanel}
-              position={MENU_POSITION}
-              rotation={MENU_ROTATION}
-              scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
-            />
-          ))}
+      <Player origin={origin} board={board} menu={menuPanel} menuDock={menuDock} strings={strings} handles={handles}>
+        {immersive && (
+          <XRMenuPanel
+            {...menu}
+            groupRef={menuPanel}
+            position={MENU_POSITION}
+            rotation={MENU_ROTATION}
+            scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
+          />
+        )}
       </Player>
       {immersive && !hasControllers && <GazeReticle />}
       {state.handheld ? (

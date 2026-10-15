@@ -169,6 +169,57 @@ export function noteOff(voice) {
   if (v) v.gain.gain.setTargetAtTime(0, context().currentTime, 0.03);
 }
 
+let noise = null;
+/** A short burst of white noise, shared by the clicks. */
+function noiseBuffer(c) {
+  if (!noise) {
+    noise = c.createBuffer(1, Math.ceil(c.sampleRate * 0.05), c.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  }
+  return noise;
+}
+
+/** One click at `time`: a tick of noise band-passed around `freq`, over a little falling knock. */
+function click(c, time, freq, level) {
+  const out = c.createGain();
+  out.gain.setValueAtTime(level, time);
+  out.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+  out.connect(master);
+  const tick = c.createBufferSource();
+  tick.buffer = noiseBuffer(c);
+  const band = c.createBiquadFilter();
+  band.type = 'bandpass';
+  band.frequency.value = freq;
+  band.Q.value = 4;
+  tick.connect(band).connect(out);
+  tick.start(time);
+  tick.stop(time + 0.05);
+  const knock = c.createOscillator();
+  knock.type = 'triangle';
+  knock.frequency.setValueAtTime(freq / 4, time);
+  knock.frequency.exponentialRampToValueAtTime(freq / 8, time + 0.03);
+  const knockGain = c.createGain();
+  knockGain.gain.value = 0.4;
+  knock.connect(knockGain).connect(out);
+  knock.start(time);
+  knock.stop(time + 0.05);
+  knock.onended = () => out.disconnect();
+}
+
+/** The menu panel's latch: a rising "click-clack" as it docks ('attach'), a falling one as it comes away ('detach'). */
+export function playClick(kind) {
+  const c = context();
+  const t = c.currentTime + 0.005;
+  if (kind === 'attach') {
+    click(c, t, 2000, 0.6);
+    click(c, t + 0.05, 3400, 0.45);
+  } else {
+    click(c, t, 3000, 0.35);
+    click(c, t + 0.06, 1600, 0.5);
+  }
+}
+
 /** Silences every held oscillator, e.g. when switching instrument. */
 export function allNotesOff() {
   for (const voice of synths.keys()) noteOff(voice);

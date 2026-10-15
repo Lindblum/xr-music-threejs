@@ -192,6 +192,11 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     () => layout(true, Array.from({ length: Math.max(rows ?? 0, items.length) }, () => ({})), lines, panelW).height,
     [rows, items.length, lines, panelW],
   );
+  // the tallest page's edges in the group's metres, for docking it against things (see Grab.jsx)
+  const bounds = useMemo(() => {
+    const top = (openHeight / 2) * PX_M;
+    return { left: (-panelW / 2) * PX_M, right: (panelW / 2) * PX_M, top, bottom: top - Math.min(openHeight, MAX_HEIGHT) * PX_M };
+  }, [openHeight, panelW]);
 
   const canvas = useMemo(() => {
     const c = document.createElement('canvas');
@@ -353,7 +358,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   useGazeTarget(mesh, onSelect, setGazeKey, pick);
 
   return (
-    <group ref={groupRef} {...groupProps}>
+    <group ref={groupRef} userData={{ bounds }} {...groupProps}>
       <mesh
         ref={mesh}
         position={[((width - panelW) / 2) * PX_M, ((openHeight - height) / 2) * PX_M, 0]}

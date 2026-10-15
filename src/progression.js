@@ -8,8 +8,9 @@ import { setBeatGrid } from './audio.js';
 
 /**
  * The progression's transport. Returns { playing, started (playing or paused),
- * index (the current chord's, or null when stopped), beat (0-based within the
- * measure), toggle (play / pause), stop, select(index) }.
+ * index (the current chord's, or null when stopped), measure (counting from
+ * the start), beat (0-based within the measure), toggle (play / pause), stop,
+ * select(index) }.
  */
 export function useProgression(progression, bpm, beatsPerMeasure) {
   const [playing, setPlaying] = useState(false);
@@ -59,7 +60,7 @@ export function useProgression(progression, bpm, beatsPerMeasure) {
 
   const index = started && length ? Math.floor(step / beatsPerMeasure) % length : null;
   return useMemo(
-    () => ({ playing, started, index, beat: step % beatsPerMeasure, toggle, stop, select }),
+    () => ({ playing, started, index, measure: Math.floor(step / beatsPerMeasure), beat: step % beatsPerMeasure, toggle, stop, select }),
     [playing, started, index, step, beatsPerMeasure, toggle, stop, select],
   );
 }

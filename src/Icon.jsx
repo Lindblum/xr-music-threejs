@@ -107,9 +107,9 @@ const echoOff = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="n
 <path d="M8.5 12h12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="1.5 3" stroke-opacity="0.6"/>
 </svg>`;
 
-// Stop: a square
+// Stop: a square, outlined like Lineicons' play and pause
 const stop = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/>
+<rect x="5.75" y="5.75" width="12.5" height="12.5" rx="2" stroke="currentColor" stroke-width="1.5"/>
 </svg>`;
 
 // Beats per measure: a bar of four beats, the first accented

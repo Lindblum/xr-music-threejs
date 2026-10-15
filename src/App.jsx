@@ -8,8 +8,8 @@ import { MENU_TOGGLE } from './XRMenuPanel.jsx';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { buildCells } from './Fretboard.jsx';
-import { INSTRUMENTS, loadInstrument, setBeatGrid, setEcho, unlockAudio } from './audio.js';
-import { SCALES, TUNINGS, builtChord, chordPitchClasses, mod12, stockChords } from './music.js';
+import { INSTRUMENTS, loadInstrument, playChord, setBeatGrid, setEcho, unlockAudio } from './audio.js';
+import { SCALES, TUNINGS, builtChord, chordNotes, chordPitchClasses, mod12, stockChords } from './music.js';
 import { useProgression } from './progression.js';
 import { loadSettings, saveSettings } from './settings.js';
 import {
@@ -23,8 +23,10 @@ import {
   cycle,
   menuItems,
   menuTitle,
+  CHECKED_COLUMNS,
   dropdownChoices,
   menuBlocks,
+  rowSpans,
   possibleLabels,
   splitLabel,
 } from './menu.js';
@@ -74,6 +76,13 @@ function isPhone() {
   return /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && canUseCardboard();
 }
 
+/** Play on Select: a chord strummed, or just its root, or nothing (`mode` 'chord' | 'root' | 'off'). */
+function playSelected(chord, mode, instrument) {
+  if (!chord || mode === 'off') return;
+  const notes = chordNotes(chord);
+  playChord(mode === 'root' ? notes.slice(0, 1) : notes, instrument);
+}
+
 const describe = (e) => `${e?.name ?? 'Error'}${e?.message ? ` - ${e.message}` : ''}`;
 
 function useMusicState() {
@@ -85,6 +94,7 @@ function useMusicState() {
   const [tuning, setTuning] = useState(saved.tuning);
   const [echo, setEchoOn] = useState(saved.echo);
   const [quantize, setQuantize] = useState(saved.quantize); // steps per beat notes wait for (0: off)
+  const [playOnSelect, setPlayOnSelect] = useState(saved.playOnSelect); // played on selecting a chord: 'off' | 'root' | 'chord'
   const [background, setBackground] = useState('skybox'); // 'solid' | 'skybox' | 'passthrough'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [page, setPage] = useState('main'); // the submenu showing, see menu.js
@@ -101,8 +111,8 @@ function useMusicState() {
     if (interval) setProgression((p) => p.map((chord) => ({ ...chord, root: mod12(chord.root + interval) })));
   }, [key]);
   useEffect(
-    () => saveSettings({ instrument, scale, key, tuning, echo, quantize, bpm, beatsPerMeasure, progression, draft }),
-    [instrument, scale, key, tuning, echo, quantize, bpm, beatsPerMeasure, progression, draft],
+    () => saveSettings({ instrument, scale, key, tuning, echo, quantize, playOnSelect, bpm, beatsPerMeasure, progression, draft }),
+    [instrument, scale, key, tuning, echo, quantize, playOnSelect, bpm, beatsPerMeasure, progression, draft],
   );
 
   const actions = useMemo(
@@ -124,6 +134,7 @@ function useMusicState() {
         ({
           instrument: setInstrument,
           quantize: setQuantize,
+          playOnSelect: setPlayOnSelect,
           scale: setScale,
           key: setKey,
           tuning: setTuning,
@@ -158,7 +169,7 @@ function useMusicState() {
     }),
     [],
   );
-  const state = { instrument, scale, key, tuning, echo, quantize, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
+  const state = { instrument, scale, key, tuning, echo, quantize, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
   return [state, actions];
 }
 
@@ -365,7 +376,7 @@ function MenuOptions({ dropdown, onSelect }) {
         >
           {option.icon && <Icon name={option.icon} />}
           <span className="option-label">{option.label}</span>
-          {option.selected && <Icon name="check" />}
+          {option.selected && (dropdown.columns ?? 2) <= CHECKED_COLUMNS && <Icon name="check" />}
         </button>
       ))}
     </div>
@@ -381,7 +392,7 @@ function MenuRow({ row, onSelect, queue }) {
       {row[0].row == null ? (
         buttons
       ) : (
-        <div className="menu-row" style={{ gridTemplateColumns: `repeat(${row[0].cols ?? row.length}, minmax(0, 1fr))` }}>
+        <div className="menu-row" style={{ gridTemplateColumns: rowSpans(row).map((span) => `minmax(0, ${span}fr)`).join(' ') }}>
           {buttons}
         </div>
       )}
@@ -391,7 +402,7 @@ function MenuRow({ row, onSelect, queue }) {
 }
 
 /** A label's stand-in in the sizer: as wide as its button would be. */
-function SizerButton({ text, compact, icon = true, small }) {
+function SizerButton({ text, compact, icon = true, small, trailing = true }) {
   return compact ? (
     <div className="menu-btn compact">
       <span className="option-label">{text}</span>
@@ -400,7 +411,7 @@ function SizerButton({ text, compact, icon = true, small }) {
     <div className={`menu-btn${small ? ' small' : ''}`}>
       {icon && <Icon name="instrument" />}
       <Label text={text} />
-      <Icon name="dropdown" />
+      {trailing && <Icon name="dropdown" />}
     </div>
   );
 }
@@ -430,14 +441,15 @@ function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
       <div className="menu-sizer" aria-hidden="true">
         {labels.map((entry) => {
           if (typeof entry === 'string') return <SizerButton key={entry} text={entry} />;
+          // each column its shares: under max-content sizing, the grid makes every share as wide as the neediest column's
           const row = (
-            <div className="menu-row sizer-row">
-              {entry.row.map((text, i) => (
-                <SizerButton key={i} text={text} compact={entry.compact} icon={entry.icon} small={entry.small} />
+            <div className="menu-row sizer-row" style={{ gridTemplateColumns: entry.row.map(({ span }) => `${span}fr`).join(' ') }}>
+              {entry.row.map(({ text, icon, trailing }, i) => (
+                <SizerButton key={i} text={text} compact={entry.compact} icon={icon} small={entry.small} trailing={trailing} />
               ))}
             </div>
           );
-          const key = entry.row.join('\n');
+          const key = JSON.stringify(entry.row);
           return entry.group ? (
             <div key={key} className="menu-group">
               {row}
@@ -492,6 +504,13 @@ export default function App() {
   // the playing (or paused) chord's notes, raised on the Fretboard; stopped, the key's triad is
   const currentChord = player.index != null ? state.progression[player.index] : null;
   const chordTones = useMemo(() => currentChord && chordPitchClasses(currentChord), [currentChord]);
+  // with Play on Select, the progression plays each chord (or its root) as it lands on it, at the top of its measure
+  const strum = useRef({});
+  strum.current = { chord: currentChord, instrument: state.instrument, mode: state.playOnSelect };
+  useEffect(() => {
+    const { chord, instrument, mode } = strum.current;
+    if (player.playing && player.beat === 0) playSelected(chord, mode, instrument);
+  }, [player.playing, player.measure, player.beat]);
   useAudioUnlock();
   const sample = useInstrument(state.instrument);
   useEffect(() => setEcho(state.echo), [state.echo]);
@@ -579,7 +598,12 @@ export default function App() {
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (id === 'echo') actions.toggleEcho();
     else if (id === 'play') player.toggle();
-    else if (id.startsWith(CHORD_PREFIX)) player.select(Number(id.slice(CHORD_PREFIX.length)));
+    else if (id.startsWith(CHORD_PREFIX)) {
+      const index = Number(id.slice(CHORD_PREFIX.length));
+      player.select(index);
+      // playing, the progression plays it as it lands there (see above)
+      if (!player.playing) playSelected(state.progression[index], state.playOnSelect, state.instrument);
+    }
     else if (id === 'stop') player.stop();
     else if (id === 'addChord') actions.addChord(builtChord(state.draft, state.key));
     else if (id === 'clearProgression') actions.clearProgression();

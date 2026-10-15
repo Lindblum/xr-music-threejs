@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { iconSvg } from './Icon.jsx';
-import { menuBlocks, splitLabel } from './menu.js';
+import { CHECKED_COLUMNS, menuBlocks, rowSpans, splitLabel } from './menu.js';
 import { useGazeTarget } from './Gaze.jsx';
 
 // The options panel in XR. It draws the same menu model as the windowed
@@ -90,15 +90,23 @@ function labelWidth(label, small) {
   return value ? textWidth(`${name}:`, font) + valueGap + textWidth(value, font) : textWidth(name, font);
 }
 
-const buttonWidth = (label, { icon = true, small = false } = {}) =>
-  INSET + (icon ? ICON + ICON_GAP : 0) + labelWidth(label, small) + textStyle(small).gap + TRAILING + INSET;
+const buttonWidth = (label, { icon = true, small = false, trailing = true } = {}) =>
+  INSET + (icon ? ICON + ICON_GAP : 0) + labelWidth(label, small) + (trailing ? textStyle(small).gap + TRAILING : 0) + INSET;
 const compactWidth = (label) => 2 * COMPACT_INSET + textWidth(label, COMPACT_FONT);
 
-/** A possibleLabels entry's width: a button, or a row of them in equal columns (inside a group's frame, if it's in one). */
+/**
+ * A possibleLabels entry's width: a button, or a row of them, each column its
+ * shares of the row (inside a group's frame, if it's in one).
+ */
 function entryWidth(entry) {
   if (typeof entry === 'string') return buttonWidth(entry);
-  const widest = Math.max(...entry.row.map((label) => (entry.compact ? compactWidth(label) : buttonWidth(label, entry))));
-  return entry.row.length * widest + (entry.row.length - 1) * COL_GAP + (entry.group ? 2 * GROUP_PAD : 0);
+  const share = Math.max(
+    ...entry.row.map(({ text, span, icon, trailing }) =>
+      (entry.compact ? compactWidth(text) : buttonWidth(text, { icon, small: entry.small, trailing })) / span,
+    ),
+  );
+  const shares = entry.row.reduce((sum, { span }) => sum + span, 0);
+  return share * shares + (entry.row.length - 1) * COL_GAP + (entry.group ? 2 * GROUP_PAD : 0);
 }
 
 function panelWidth(title, labels) {
@@ -126,9 +134,14 @@ function layout(open, items, lines, panelW) {
     const frameTop = y;
     if (block.group) y += GROUP_PAD;
     for (const row of block.rows) {
-      const cols = row[0].row == null ? 1 : (row[0].cols ?? row.length);
-      const colW = (w - (cols - 1) * COL_GAP) / cols;
-      row.forEach((item, i) => rects.push({ id: item.id, item, x: x + i * (colW + COL_GAP), y, w: colW, h: BUTTON_H }));
+      // each button its shares of the row's width
+      const spans = row[0].row == null ? [1] : rowSpans(row);
+      const share = (w - (spans.length - 1) * COL_GAP) / spans.reduce((sum, span) => sum + span, 0);
+      let left = x;
+      row.forEach((item, i) => {
+        rects.push({ id: item.id, item, x: left, y, w: spans[i] * share, h: BUTTON_H });
+        left += spans[i] * share + COL_GAP;
+      });
       y += BUTTON_H + GAP;
       const open = row.find((item) => item.dropdown?.open);
       if (!open) continue;
@@ -138,6 +151,7 @@ function layout(open, items, lines, panelW) {
         rects.push({
           id: option.id,
           option,
+          checked: option.selected && columns <= CHECKED_COLUMNS,
           x: x + OPTION_INDENT + (i % columns) * (optionW + OPTION_GAP),
           y: y + Math.floor(i / columns) * (OPTION_H + OPTION_GAP),
           w: optionW,
@@ -356,9 +370,9 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         }
         ctx.fillStyle = '#ffffff';
         ctx.font = OPTION_FONT;
-        const room = r.x + r.w - INSET - tx - (option.selected ? CHECK + 10 : 0);
+        const room = r.x + r.w - INSET - tx - (r.checked ? CHECK + 10 : 0);
         centredText(ctx, fit(ctx, option.label, room), tx, r.y + r.h / 2);
-        if (option.selected) {
+        if (r.checked) {
           const check = iconImage('check', redraw);
           if (check.complete && check.naturalWidth) ctx.drawImage(check, r.x + r.w - INSET - CHECK, r.y + (r.h - CHECK) / 2, CHECK, CHECK);
         }

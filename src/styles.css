@@ -99,8 +99,8 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 /* buttons sharing a row, in equal columns */
 .menu-row { display: grid; gap: 8px; }
-/* in the sizer, each column as wide as the row's widest label, as a real row would need */
-.menu-sizer .sizer-row { grid-auto-flow: column; grid-auto-columns: 1fr; }
+/* in the sizer, columns in the row's shares (set on the row), as a real row would need */
+.menu-sizer .sizer-row { grid-auto-flow: column; }
 /* a framed group of buttons, such as the progression's queue */
 .menu-group {
   display: flex;

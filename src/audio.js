@@ -299,6 +299,28 @@ export function playClick(kind) {
   }
 }
 
+const STRUM = 0.025; // seconds between a strummed chord's notes, low to high
+const CHORD_HOLD = 1; // seconds a strummed chord's synth notes sound
+
+let chordTimers = [];
+
+/**
+ * Strums `notes` (semitones from C4, low to high) once on `instrument`, each
+ * as its own voice. A chord still sounding from before makes way.
+ */
+export function playChord(notes, instrument) {
+  chordTimers.forEach(clearTimeout);
+  chordTimers = [];
+  for (const voice of [...synths.keys()]) if (voice.startsWith('chord:')) noteOff(voice);
+  notes.forEach((note, i) => {
+    const voice = `chord:${i}`;
+    chordTimers.push(
+      setTimeout(() => noteOn(voice, note, instrument), i * STRUM * 1000),
+      setTimeout(() => noteOff(voice), (i * STRUM + CHORD_HOLD) * 1000),
+    );
+  });
+}
+
 /** Silences every held oscillator and forgets every bend, e.g. when switching instrument. */
 export function allNotesOff() {
   for (const voice of [...synths.keys()]) noteOff(voice);

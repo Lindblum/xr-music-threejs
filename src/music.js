@@ -83,7 +83,17 @@ export function chordPitchClasses({ root, type, modifier }) {
   return new Set([...quality.steps, ...added].map((step) => mod12(root + step)));
 }
 
-const NUMERALS = ['I', 'bII', 'II', 'bIII', 'III', 'IV', '#IV', 'V', 'bVI', 'VI', 'bVII', 'VII'];
+const CHORD_BASE = -12; // C3: a chord's root is voiced in the octave from here
+
+/** The chord voiced as notes (semitones from C4), low to high: the root from C3, its tones above, add9 as a 9th. */
+export function chordNotes({ root, type, modifier }) {
+  const quality = chordType(type);
+  const added = modifier === 'dom7' && quality.seventh != null ? [quality.seventh] : chordModifier(modifier).steps;
+  const steps = [...quality.steps, ...added.map((step) => (modifier === 'add9' ? step + 12 : step))];
+  return [...new Set(steps)].sort((a, b) => a - b).map((step) => CHORD_BASE + root + step);
+}
+
+const NUMERALS =['I', 'bII', 'II', 'bIII', 'III', 'IV', '#IV', 'V', 'bVI', 'VI', 'bVII', 'VII'];
 
 // how a degree's roman numeral shows its triad: lower case for minor and diminished, with ° or +
 const numeralFor = (step, type) =>
@@ -134,7 +144,13 @@ export const STOCK_PROGRESSIONS = [
   { id: 'andalusian', name: 'Andalusian', scale: 'minor', chords: [[0, 'min'], [10, 'maj'], [8, 'maj'], [7, 'maj']] },
   { id: 'aeolian', name: 'Aeolian Vamp', scale: 'minor', chords: [[0, 'min'], [8, 'maj'], [10, 'maj'], [0, 'min']] },
   { id: 'mixolydian', name: 'Mixolydian Rock', scale: 'major', chords: [[0, 'maj'], [10, 'maj'], [5, 'maj'], [0, 'maj']] },
-  { id: 'heyJoe', name: 'Hey Joe', scale: 'major', chords: [[8, 'maj'], [3, 'maj'], [10, 'maj'], [5, 'maj'], [0, 'maj']] },
+  // half a bar each, then two bars on I, in the song: doubled here to whole measures, so the same shape at half speed
+  {
+    id: 'heyJoe',
+    name: 'Hey Joe',
+    scale: 'major',
+    chords: [[8, 'maj'], [3, 'maj'], [10, 'maj'], [5, 'maj'], [0, 'maj'], [0, 'maj'], [0, 'maj'], [0, 'maj']],
+  },
   { id: 'louie', name: 'Louie Louie', scale: 'major', chords: [[0, 'maj'], [5, 'maj'], [7, 'min'], [5, 'maj']] },
 ];
 

@@ -5,7 +5,7 @@
 
 import { INSTRUMENTS } from './audio.js';
 import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
-import { BEATS_PER_MEASURE, BPMS, QUANTIZE } from './menu.js';
+import { BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE } from './menu.js';
 
 const COOKIE = 'xr-music-settings';
 const MAX_AGE = 60 * 60 * 24 * 365; // a year, renewed on every change
@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = {
   tuning: TUNINGS[0],
   echo: false,
   quantize: 0, // off
+  playOnSelect: 'off', // what's played when a chord in the queue is selected or landed on: 'off' | 'root' | 'chord'
   bpm: 100,
   beatsPerMeasure: 4,
   progression: [], // chords: { root, type, modifier }, see music.js
@@ -60,6 +61,9 @@ export function loadSettings() {
     tuning: TUNINGS.find((t) => t.id === saved.tuning) ?? d.tuning,
     echo: Boolean(saved.echo),
     quantize: pick(QUANTIZE.some((q) => q.division === saved.quantize), saved.quantize, d.quantize),
+    // (once a plain on / off: on was the whole chord)
+    playOnSelect:
+      saved.playOnSelect === true ? 'chord' : pick(PLAY_ON_SELECT.some((p) => p.id === saved.playOnSelect), saved.playOnSelect, d.playOnSelect),
     bpm: pick(BPMS.includes(saved.bpm), saved.bpm, d.bpm),
     beatsPerMeasure: pick(BEATS_PER_MEASURE.includes(saved.beats), saved.beats, d.beatsPerMeasure),
     progression: Array.isArray(saved.progression) ? saved.progression.map(unpackChord).filter(isChord) : d.progression,
@@ -77,6 +81,7 @@ export function saveSettings(s) {
     tuning: s.tuning.id,
     echo: s.echo,
     quantize: s.quantize,
+    playOnSelect: s.playOnSelect,
     bpm: s.bpm,
     beats: s.beatsPerMeasure,
     progression: s.progression.map(packChord),

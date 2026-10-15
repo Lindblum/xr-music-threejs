@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FRETS, touchedCell, touchesFrame } from './Fretboard.jsx';
+import { pickTip } from './Pick.jsx';
 
 // Playing the Fretboard in XR, as in three.js's haptics demo: each
 // controller's tip (or each hand's index fingertip) is a small mallet.
 // Touching a cube strikes its note; a controller kicks as it enters a cube
 // and hums softly while it stays inside. Notes outside the scale only sound
 // while the controller's trigger is held (a tracked hand can't play them). Touching the frame gives a lighter
-// tap and hum, so you can feel where to take hold of it.
+// tap and hum, so you can feel where to take hold of it. The pick's tip is a
+// mallet too: held, it kicks and hums the hand holding it, and that
+// controller's own tip stops playing; the holding hand's trigger lets it play
+// any note.
 
 const HANDS = ['left', 'right'];
 const RADIUS = 0.02; // mallet radius, metres
@@ -22,6 +26,7 @@ const HUM_EVERY = 0.05; // seconds between hum pulses, so they overlap into a st
 
 const _pose = new THREE.Matrix4();
 const _dir = new THREE.Vector3();
+const _pickTip = new THREE.Vector3();
 
 /** Each hand's mallet in world space: { position, gamepad?, controller, trigger }, read straight from the XR frame. */
 function readMallets(frame, referenceSpace, origin) {
@@ -54,12 +59,13 @@ export function pulse(gamepad, [strength, ms]) {
 }
 
 /**
- * Touch play for both hands. `board` and `origin` are refs; `cells` the
- * Fretboard's cells; `press(voice, index | null)` sounds or releases a note.
- * Writes which hands touch the frame into `handles.current.touching`.
- * Renders the controller mallets.
+ * Touch play for both hands and the pick. `board`, `pick` and `origin` are
+ * refs; `cells` the Fretboard's cells; `press(voice, index | null)` sounds or
+ * releases a note. Writes which hands touch the frame into
+ * `handles.current.touching`, and reads which hold the pick from
+ * `handles.current.pick`. Renders the controller mallets.
  */
-export function TouchPlay({ board, origin, cells, press, handles }) {
+export function TouchPlay({ board, pick, origin, cells, press, handles }) {
   const gl = useThree((s) => s.gl);
   const nextHum = useRef({});
   const balls = useRef({});
@@ -69,29 +75,47 @@ export function TouchPlay({ board, origin, cells, press, handles }) {
     const mallets = frame && origin.current && referenceSpace ? readMallets(frame, referenceSpace, origin.current) : {};
     const now = performance.now() / 1000;
     const { touching, holding } = handles.current;
+    const pickHolding = handles.current.pick?.holding ?? {};
+    const fretboard = board.current;
+
+    /** One mallet's frame: strike what it touches, and kick or hum `gamepad`. */
+    const play = (voice, m, radius, frameToo) => {
+      const index = m && fretboard ? touchedCell(fretboard, m.position, radius, m.trigger) : null;
+      const struck = press(voice, index);
+      const wasOnFrame = Boolean(touching[voice]);
+      const onFrame = Boolean(frameToo && m && fretboard && touchesFrame(fretboard, cells.length / FRETS, m.position, radius));
+      if (frameToo) touching[voice] = onFrame;
+      // a hand carrying the Fretboard stays on the frame: Grab.jsx gave it its pulse
+      if (!m?.gamepad || holding[voice] || (index == null && !onFrame)) return;
+      const [tap, hum] = index != null ? [STRIKE, HUM] : [FRAME_TAP, FRAME_HUM];
+      if (struck || (onFrame && !wasOnFrame && index == null)) {
+        pulse(m.gamepad, tap);
+        nextHum.current[voice] = now + tap[1] / 1000;
+      } else if (now >= (nextHum.current[voice] ?? 0)) {
+        pulse(m.gamepad, hum);
+        nextHum.current[voice] = now + HUM_EVERY;
+      }
+    };
+
     for (const hand of HANDS) {
-      const m = mallets[hand];
+      // a controller holding the pick plays with the pick instead
+      const m = pickHolding[hand] ? null : mallets[hand];
       const ball = balls.current[hand];
       if (ball) {
         ball.visible = Boolean(m?.controller);
         if (m) ball.position.copy(m.position);
       }
-      const fretboard = board.current;
-      const index = m && fretboard ? touchedCell(fretboard, cells, m.position, RADIUS, m.trigger) : null;
-      const struck = press(hand, index);
-      const wasOnFrame = Boolean(touching[hand]);
-      const onFrame = Boolean(m && fretboard && touchesFrame(fretboard, cells.length / FRETS, m.position, RADIUS));
-      touching[hand] = onFrame;
-      // a hand carrying the Fretboard stays on the frame: Grab.jsx gave it its pulse
-      if (!m?.gamepad || holding[hand] || (index == null && !onFrame)) continue;
-      const [tap, hum] = index != null ? [STRIKE, HUM] : [FRAME_TAP, FRAME_HUM];
-      if (struck || (onFrame && !wasOnFrame && index == null)) {
-        pulse(m.gamepad, tap);
-        nextHum.current[hand] = now + tap[1] / 1000;
-      } else if (now >= (nextHum.current[hand] ?? 0)) {
-        pulse(m.gamepad, hum);
-        nextHum.current[hand] = now + HUM_EVERY;
-      }
+      play(hand, m, RADIUS, true);
+    }
+
+    const p = pick.current;
+    if (p) {
+      // the pick's tip, with the trigger and haptics of the hand holding it (the first, if both)
+      const holder = mallets[HANDS.find((hand) => pickHolding[hand])];
+      const radius = pickTip(p, _pickTip);
+      play('pick', { position: _pickTip, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger) }, radius, false);
+    } else {
+      press('pick', null);
     }
   });
 
@@ -113,7 +137,7 @@ const _direction = new THREE.Vector3();
  * motion-sensor view's overlay, and in an AR session a touch shows up as a
  * screen input source.
  */
-export function GazePlay({ board, cells, press, holding }) {
+export function GazePlay({ board, press, holding }) {
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   useEffect(() => () => press('gaze', null), [press]);
 
@@ -126,7 +150,7 @@ export function GazePlay({ board, cells, press, holding }) {
     raycaster.set(_origin, _direction);
     const [hit] = raycaster.intersectObjects(notes.children, false);
     const index = hit ? notes.children.indexOf(hit.object) : -1;
-    press('gaze', index >= 0 && (cells[index]?.inScale || touching) ? index : null);
+    press('gaze', index >= 0 && (hit.object.userData.playable || touching) ? index : null);
   });
   return null;
 }

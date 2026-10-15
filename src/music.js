@@ -31,6 +31,64 @@ export const TUNINGS = [
 
 export const isInSteps = (note, key, steps) => steps.includes(mod12(Math.round(note) - key));
 
+/** Chord types: the triad, as semitones above the root. */
+export const CHORD_TYPES = [
+  { id: 'maj', name: 'Maj', steps: [0, 4, 7] },
+  { id: 'min', name: 'Min', steps: [0, 3, 7] },
+  { id: 'sus2', name: 'Sus2', steps: [0, 2, 7] },
+  { id: 'sus4', name: 'Sus4', steps: [0, 5, 7] },
+];
+
+/** Notes added to the triad, as semitones above the root (an octave down for the 9th). */
+export const CHORD_MODIFIERS = [
+  { id: 'none', name: 'None', steps: [] },
+  { id: 'dom7', name: 'Dom7', steps: [10] },
+  { id: 'maj7', name: 'Maj7', steps: [11] },
+  { id: 'six', name: '6', steps: [9] },
+  { id: 'add9', name: 'Add9', steps: [2] },
+];
+
+const chordType = (id) => CHORD_TYPES.find((t) => t.id === id);
+const chordModifier = (id) => CHORD_MODIFIERS.find((m) => m.id === id);
+
+// what each modifier writes after the root, by chord type; a sus chord's "sus2" / "sus4" follows it
+const MAJOR_SUFFIX = { none: '', dom7: '7', maj7: 'maj7', six: '6', add9: 'add9' };
+const MINOR_SUFFIX = { none: 'm', dom7: 'm7', maj7: 'm(maj7)', six: 'm6', add9: 'm(add9)' };
+const SUS_SUFFIX = { none: '', dom7: '7', maj7: 'maj7', six: '6', add9: '' };
+
+/** A chord ({ root: 0..11, type, modifier }) as it's written: C, Am7, Gsus4, Fmaj7, D7sus4, Csus2(add9). */
+export function chordName({ root, type, modifier }) {
+  const name = NOTE_NAMES[root];
+  if (type === 'maj') return name + MAJOR_SUFFIX[modifier];
+  if (type === 'min') return name + MINOR_SUFFIX[modifier];
+  return `${name}${SUS_SUFFIX[modifier]}${type}${modifier === 'add9' ? '(add9)' : ''}`;
+}
+
+/** The chord's notes as pitch classes (0..11, C = 0). */
+export function chordPitchClasses({ root, type, modifier }) {
+  return new Set([...chordType(type).steps, ...chordModifier(modifier).steps].map((step) => mod12(root + step)));
+}
+
+const NUMERALS = ['I', 'bII', 'II', 'bIII', 'III', 'IV', '#IV', 'V', 'bVI', 'VI', 'bVII', 'VII'];
+
+/**
+ * The chords on each degree of the key's scale: the first type whose notes
+ * all lie in the scale (major or minor, else a sus chord), named by its
+ * roman numeral, lower case for minor. Degrees with none (a major scale's
+ * diminished vii) are left out. Each: { chord, label }.
+ */
+export function keyChords(key, scale) {
+  return scale.steps.flatMap((step) => {
+    const type = CHORD_TYPES.find((t) => t.steps.every((s) => scale.steps.includes(mod12(step + s))));
+    if (!type) return [];
+    const chord = { root: mod12(key + step), type: type.id, modifier: 'none' };
+    const numeral = type.id === 'min' ? NUMERALS[step].toLowerCase() : NUMERALS[step];
+    return [{ chord, label: `${numeral} ${chordName(chord)}` }];
+  });
+}
+
+export const sameChord = (a, b) => a.root === b.root && a.type === b.type && a.modifier === b.modifier;
+
 /**
  * The note's colour around the colour wheel, as the old page drew it:
  * bright for notes in the scale, dark for the rest. Returns [r, g, b] in 0..1 (sRGB).

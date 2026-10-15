@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { FRETS, Fretboard } from './Fretboard.jsx';
 import { GazePlay, TouchPlay } from './Touch.jsx';
 import { useControllerGrips } from './Grab.jsx';
+import { Pick } from './Pick.jsx';
 import { XRMenuPanel } from './XRMenuPanel.jsx';
 import { SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
@@ -26,6 +27,11 @@ const MENU_POSITION = [-0.65, 1.05, 0.05];
 const MENU_ROTATION = [0, 0.9, 0];
 // a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
 const PHONE_STEREO_MENU_SCALE = 1.5;
+// The pick (XR: Headset only) starts in front of the player, a little right
+// of centre and below the board's middle, clear of its raised notes, face on,
+// tip down. Constants, so a re-render never undoes a move.
+const PICK_POSITION = [0.3, 0.95, -0.05];
+const PICK_ROTATION = [0, -0.3, 0.25];
 // With VR controllers the panel starts docked on the left one, like a palette
 // held in that hand, and the right controller's ray presses its buttons. A
 // grip takes it to dock on either controller or the Fretboard's frame (see Grab.jsx).
@@ -139,7 +145,7 @@ const _head = new THREE.Vector3();
  * The grip buttons, on the Fretboard's frame, move, turn and scale it, or
  * carry and dock the panel. An undocked panel travels with the player.
  */
-function Player({ origin, board, menu, menuDock, strings, handles, children }) {
+function Player({ origin, board, pick, menu, menuDock, strings, handles, children }) {
   useXRControllerLocomotion(
     (velocity, turn, delta, state) => {
       const o = origin.current;
@@ -159,7 +165,7 @@ function Player({ origin, board, menu, menuDock, strings, handles, children }) {
     { speed: 1.5 },
     { type: 'smooth', speed: 1.5 },
   );
-  useControllerGrips({ board, menu, menuDock, origin, strings, handles });
+  useControllerGrips({ board, pick, menu, menuDock, origin, strings, handles });
   return <XROrigin ref={origin}>{children}</XROrigin>;
 }
 
@@ -196,7 +202,7 @@ function useTouches(cells, instrument) {
   return [touches, press];
 }
 
-export default function Scene({ cells, state, menu, phone, holding }) {
+export default function Scene({ cells, chord, state, menu, phone, holding }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -214,8 +220,10 @@ export default function Scene({ cells, state, menu, phone, holding }) {
   const board = useRef(null);
   const origin = useRef(null);
   const menuPanel = useRef(null);
+  const pick = useRef(null);
   const menuDock = useRef({ to: null, placed: false }); // where the panel is docked: see Grab.jsx
-  const handles = useRef({ touching: {}, holding: {} }); // hands on the frame: see Touch.jsx and Grab.jsx
+  // hands on the frame, and touching and holding the pick: see Touch.jsx and Grab.jsx
+  const handles = useRef({ touching: {}, holding: {}, pick: { touching: {}, holding: {} } });
   const strings = cells.length / FRETS;
   const [touches, press] = useTouches(cells, state.instrument);
   const hoverMouse = useCallback((index) => press('mouse', index), [press]);
@@ -279,14 +287,24 @@ export default function Scene({ cells, state, menu, phone, holding }) {
         boardRef={board}
         position={BOARD_POSITION}
         cells={cells}
+        chord={chord}
         touches={touches}
         handles={handles}
         hoverEnabled={!immersive}
         onHover={hoverMouse}
       />
-      {inSession && <TouchPlay board={board} origin={origin} cells={cells} press={press} handles={handles} />}
-      {immersive && !hasControllers && <GazePlay board={board} cells={cells} press={press} holding={holding} />}
-      <Player origin={origin} board={board} menu={menuPanel} menuDock={menuDock} strings={strings} handles={handles}>
+      {inSession && !phone && <Pick pickRef={pick} handles={handles} position={PICK_POSITION} rotation={PICK_ROTATION} />}
+      {inSession && <TouchPlay board={board} pick={pick} origin={origin} cells={cells} press={press} handles={handles} />}
+      {immersive && !hasControllers && <GazePlay board={board} press={press} holding={holding} />}
+      <Player
+        origin={origin}
+        board={board}
+        pick={pick}
+        menu={menuPanel}
+        menuDock={menuDock}
+        strings={strings}
+        handles={handles}
+      >
         {immersive && (
           <XRMenuPanel
             {...menu}

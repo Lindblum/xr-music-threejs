@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { isInSteps, noteCss, noteName, noteRgb } from './music.js';
+import { isInSteps, mod12, noteCss, noteName, noteRgb } from './music.js';
 
 // The Fretboard: one cube per string and fret, like a guitar neck stood up
 // in front of the player, inside a picture frame. Each cube is coloured by
 // its note, with the name on its front face. Notes in the scale are bright
-// and stand out toward the player; the key's triad stands out a little
-// further. Notes outside the scale don't sound at a touch: the mouse has to
+// and stand out toward the player; the current chord's notes stand out
+// further (while a progression plays or is paused, its chord; otherwise the
+// key's triad), gliding there when it changes. Notes outside the scale (and
+// the chord) don't sound at a touch: the mouse has to
 // press them (or drag over them with the button down), and a controller has
 // to hold its trigger. The frame is the handle that moves, turns and scales the whole
 // Fretboard (see Grab.jsx). Fretboard space has its origin at the centre of
@@ -17,10 +19,14 @@ export const FRETS = 25; // open string plus 24 frets
 export const SPACING = 0.1; // metres between cube centres
 export const CUBE = 0.08; // cube edge
 const SCALE_RAISE = 0.1;
-const CHORD_RAISE = 0.05;
+const CHORD_RAISE = 0.3;
 const TOUCH_EMISSIVE = new THREE.Color(0, 0, 1); // the old page's blue glow
 const NO_EMISSIVE = new THREE.Color(0, 0, 0);
 const JITTER = 0.1; // touched cubes shiver up to this much larger
+const RAISE_RATE = 10; // per second: how quickly cubes glide to a new chord's heights
+
+/** How far a cube stands out: the chord's notes furthest, then the scale's. */
+const raise = (inChord, inScale) => (inChord ? CHORD_RAISE : inScale ? SCALE_RAISE : 0);
 
 /** Every cube's note and place on the board (board-local metres). */
 export function buildCells(tuning, key, scale) {
@@ -34,11 +40,8 @@ export function buildCells(tuning, key, scale) {
       cells.push({
         note,
         inScale,
-        position: [
-          (fret - (FRETS - 1) / 2) * SPACING,
-          (s - (strings.length - 1) / 2) * SPACING,
-          (inScale ? SCALE_RAISE : 0) + (inChord ? CHORD_RAISE : 0),
-        ],
+        inChord,
+        position: [(fret - (FRETS - 1) / 2) * SPACING, (s - (strings.length - 1) / 2) * SPACING, raise(inChord, inScale)],
       });
     }
   });
@@ -87,13 +90,17 @@ const geometry = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
  * `touches` is a Map of voice -> cell index, written by whatever is touching
  * the notes; touched cubes glow and shiver. `handles` is the frame's
  * { touching, holding } (hand -> true), which light it up.
- * `onHover(index | null)` reports the mouse: hovering sounds notes in the
- * scale, and with the button down, any note.
+ * `chord`: the current chord's pitch classes (a Set), or null for the key's
+ * triad. `onHover(index | null)` reports the mouse: hovering sounds notes in
+ * the scale or chord, and with the button down, any note. Each cube's mesh
+ * carries `userData.playable`, whether a touch sounds it.
  */
-export function Fretboard({ boardRef, cells, touches, handles, hoverEnabled, onHover, position }) {
+export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, position }) {
   const strings = cells.length / FRETS;
   const meshes = useRef([]);
   const materials = useMemo(() => cells.map(cubeMaterials), [cells]);
+  const inChord = useMemo(() => cells.map((cell) => (chord ? chord.has(mod12(cell.note)) : cell.inChord)), [cells, chord]);
+  const playable = useMemo(() => cells.map((cell, i) => cell.inScale || inChord[i]), [cells, inChord]);
   const controls = useThree((s) => s.controls);
   const strumming = useRef(false); // the button went down on the board and is still down
   // the button held down plays any note it passes over, so the view stays still meanwhile
@@ -109,7 +116,7 @@ export function Fretboard({ boardRef, cells, touches, handles, hoverEnabled, onH
       strumming.current = false;
       if (controls) controls.enabled = true;
       const index = touches.current.get('mouse');
-      if (index != null && !cells[index]?.inScale) onHover(null);
+      if (index != null && !playable[index]) onHover(null);
     };
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
@@ -117,7 +124,7 @@ export function Fretboard({ boardRef, cells, touches, handles, hoverEnabled, onH
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
     };
-  }, [controls, touches, cells, onHover]);
+  }, [controls, touches, playable, onHover]);
   useEffect(
     () => () => {
       for (const [side, , , , front] of materials) {
@@ -128,10 +135,13 @@ export function Fretboard({ boardRef, cells, touches, handles, hoverEnabled, onH
     [materials],
   );
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     const touched = new Set(touches.current.values());
+    const glide = 1 - Math.exp(-RAISE_RATE * Math.min(dt, 0.1));
     meshes.current.forEach((mesh, i) => {
       if (!mesh) return;
+      mesh.position.z += (raise(inChord[i], cells[i].inScale) - mesh.position.z) * glide;
+      mesh.userData.playable = playable[i];
       const on = touched.has(i);
       const [side, , , , front] = materials[i];
       side.emissive.copy(on ? TOUCH_EMISSIVE : NO_EMISSIVE);
@@ -155,7 +165,7 @@ export function Fretboard({ boardRef, cells, touches, handles, hoverEnabled, onH
             onPointerOver={(e) => {
               if (!hoverEnabled) return;
               e.stopPropagation();
-              if (cell.inScale || strumming.current) onHover(i);
+              if (playable[i] || strumming.current) onHover(i);
             }}
             onPointerOut={() => hoverEnabled && touches.current.get('mouse') === i && onHover(null)}
             onPointerDown={(e) => {
@@ -260,18 +270,21 @@ export function nearFrame(board, strings, world, reach) {
 
 /**
  * The cell a sphere at `world` (radius in metres) touches, the nearest if
- * several, or null. Cubes are boxes around their centres, in board space.
- * `outOfScale`: whether notes outside the scale count.
+ * several, or null. Cubes are boxes around their centres, in board space,
+ * where they stand now. `outOfScale`: whether notes that aren't playable
+ * (outside the scale and chord) count.
  */
-export function touchedCell(board, cells, world, radius, outOfScale) {
+export function touchedCell(board, world, radius, outOfScale) {
+  const notes = board.getObjectByName('Notes');
+  if (!notes) return null;
   board.worldToLocal(_local.copy(world));
   const r = radius / board.scale.x;
   const half = CUBE / 2;
   let best = null;
   let bestDist = Infinity;
-  cells.forEach((cell, i) => {
-    if (!cell.inScale && !outOfScale) return;
-    const [x, y, z] = cell.position;
+  notes.children.forEach((mesh, i) => {
+    if (!mesh.userData.playable && !outOfScale) return;
+    const { x, y, z } = mesh.position;
     // distance from the sphere's centre to the box
     const dx = Math.max(Math.abs(_local.x - x) - half, 0);
     const dy = Math.max(Math.abs(_local.y - y) - half, 0);

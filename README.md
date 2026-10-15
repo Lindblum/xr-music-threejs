@@ -26,12 +26,12 @@ npm run preview
 The Fretboard object holds the note cubes (`Notes`) inside a picture frame (`FretboardFrame`). The frame is the handle for moving the whole thing.
 
 - Each cube is coloured by its note around the colour wheel (the old page's colours), with its name on the front face.
-- Notes in the scale are bright and stand 10 cm out toward you. The triad on the key stands another 5 cm out.
+- Notes in the scale are bright and stand 10 cm out toward you (`SCALE_RAISE`). The current chord's notes stand further out (`CHORD_RAISE`): while a progression plays or is paused, its current chord; otherwise the triad on the key. They glide to their new places when the chord changes, and a chord's notes play at a touch even when they're outside the scale.
 - The bottom row is the lowest string. The open strings are on the left, and frets 1 to 24 run to the right.
 
 ## Controls
 
-The options panel has two submenus, each marked with an arrow. **Music** holds Instrument, Scale, Key, Tuning and Echo. **Video** holds Background and View Mode. Each submenu starts with a Back button. Instrument, Scale, Key, Tuning, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row, then pick one. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
+The options panel has two submenus, each marked with an arrow. **Music** holds Instrument, Scale, Key, Tuning, Echo, BPM, Beats per Measure and **Progression**, a submenu of its own. **Video** holds Background and View Mode. Each submenu starts with a Back button. Instrument, Scale, Key, Tuning, BPM, Beats per Measure, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row, then pick one. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
 
 | Action | Desktop | XR |
 | --- | --- | --- |
@@ -42,12 +42,17 @@ The options panel has two submenus, each marked with an arrow. **Music** holds I
 | Instrument | Music, `I` (`Shift+I` goes back) | Music |
 | Scale / Key / Tuning | Music, `S` / `K` / `T` | Music |
 | Echo | Music, `E` | Music |
+| Tempo | Music: BPM (40 to 200) and Beats per Measure (2 to 7). Each chord in a progression lasts one measure | Music |
+| Build a progression | Music → Progression. Set the chord to add with **From Key** (the chords on the key's scale degrees, by roman numeral), or with **Root**, **Type** (Maj, Min, Sus2, Sus4) and **Modifier** (None, Dom7, Maj7, 6, Add9), then press **Add**. The progression starts empty; its chords are listed below Add | Same |
+| Edit a progression | Press a chord in the list for **Play From Here**, **Move Earlier**, **Move Later** or **Remove** | Same |
+| Play / pause / stop a progression | Progression: **Play** / **Pause** (shows the chord and beat), `P`; **Stop** returns to the start and raises the key's triad again. It loops, and the playing chord is marked in the list | Same |
+| The pick | — | XR: Headset only. A 10 cm guitar pick waits in front of you, below the board. Put a controller tip on it and hold the grip to carry it, or both grips to scale and turn it, as with the Fretboard. Its tip plays notes as a controller tip does: the hand holding it feels the kick and hum, and that hand's trigger lets it play notes outside the scale. While you hold it, that controller's own tip doesn't play. It glows while touched and held |
 | Show / hide the panel | Gear button, `Enter`, `Esc` | Gear on the panel |
 | Orbit / zoom | Drag / scroll | Walk around. The left stick moves you and the right stick turns you |
 | Feel the frame | — | Touch it with a controller tip: a light tap, then a soft hum while you stay on it. It glows while touched |
 | Move / turn the Fretboard | — | Put a controller tip on the frame and hold the grip. The Fretboard follows that hand, moving and turning with it |
 | Scale / turn the Fretboard | — | Hold both grips on the frame (as in Tilt Brush). Pull your hands apart or push them together to scale it, and turn the line between them to rotate it |
-| The panel in XR | — | With VR controllers it starts on the left controller, like a palette held in that hand: press its buttons with the right controller's ray. Point at it and hold the grip to take it (with a click); let go near the other controller to dock it there, near the Fretboard to dock it against the frame's nearest edge (it then moves with the Fretboard), or anywhere else to leave it floating. Docking clicks and buzzes the controller it lands on. Without controllers (hand tracking, phones) it floats to your left |
+| The panel in XR | — | With VR controllers it starts on the left controller, like a palette held in that hand: press its buttons with the right controller's ray. Point at it or touch it with the other controller and hold the grip to take it (with a click); let go near the other controller to dock it there, near the Fretboard to dock it against the frame's nearest edge (it then moves with the Fretboard), or anywhere else to leave it floating. Docking clicks and buzzes the controller it lands on. Without controllers (hand tracking, phones) it floats to your left |
 | Background: Solid / Skybox / Passthrough | Video. Solid and Skybox are the 4D viewer's: a dark grey, or the starry sky | Video. Passthrough switches live in an AR session |
 | View Mode | Video. **3D: SBS** is half side-by-side stereo for 3D TVs and projectors; hovering works in either half. **3D: Interlaced** puts the left eye on every other row (starting at the top) and the right eye between, for passive polarised 3D monitors | Video. **XR: Headset** on headsets. On phones, as in the 4D viewer: **XR: Phone AR** (one view) and **XR: Phone Viewer** (two lens-corrected eyes for a phone viewer), tracked by ARCore, or steered by the motion sensors where there is no AR. Choose a windowed mode to leave XR |
 
@@ -59,11 +64,13 @@ Instruments are samples played back at the note's pitch: Trombone, Piano, Banjo,
 - `src/Scene.jsx`: lights and shadow floor, backdrop, the board, locomotion, and who is touching which note
 - `src/Fretboard.jsx`: the Fretboard object: the note cubes and their labels, the frame, and the touch tests
 - `src/Touch.jsx`: controller and hand mallets, the haptic pulses for notes and the frame, and gaze play for phones
-- `src/Grab.jsx`, `src/grip.js`: grip-button controls that take hold of the frame to move, turn and scale the Fretboard, or carry the panel and dock it to a controller or the frame
+- `src/Grab.jsx`, `src/grip.js`: grip-button controls that take hold of the frame or the pick to move, turn and scale it, or carry the panel and dock it to a controller or the frame
+- `src/Pick.jsx`: the XR pick: its shape, and the touch tests for grabbing it and for its tip
+- `src/progression.js`: the chord progression's transport: play, pause, stop and the beat clock
 - `src/audio.js`: the Web Audio engine: sample loading, playback, the oscillator voices and the echo
 - `src/pitch.js`: pitch detection for samples (McLeod pitch method)
-- `src/music.js`: note names, colours, scales and tunings
-- `src/menu.js`: the options menu, its Music and Video submenus and its dropdowns, shared by both panels
+- `src/music.js`: note names, colours, scales and tunings, and chords: types, modifiers, names and the chords in a key
+- `src/menu.js`: the options menu, its Music, Progression and Video submenus and its dropdowns, shared by both panels
 - `src/XRMenuPanel.jsx`: the options panel in XR, drawn on a canvas
 - `src/SideBySide.jsx`: the 3D: SBS view, and pointer picking in either half
 - `src/Interlaced.jsx`: the 3D: Interlaced view, each eye rendered off screen and woven row by row

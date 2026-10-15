@@ -8,6 +8,14 @@ import check from 'lineicons/assets/svgs/regular/check.svg?raw';
 import gear from 'lineicons/assets/svgs/regular/gear-1.svg?raw';
 import picture from 'lineicons/assets/svgs/regular/gallery.svg?raw';
 import globe from 'lineicons/assets/svgs/regular/globe-1.svg?raw';
+import play from 'lineicons/assets/svgs/regular/play.svg?raw';
+import pause from 'lineicons/assets/svgs/regular/pause.svg?raw';
+import plus from 'lineicons/assets/svgs/regular/plus.svg?raw';
+import trash from 'lineicons/assets/svgs/regular/trash-3.svg?raw';
+import stopwatch from 'lineicons/assets/svgs/regular/stopwatch.svg?raw';
+import layers from 'lineicons/assets/svgs/regular/layers-1.svg?raw';
+import arrowUp from 'lineicons/assets/svgs/regular/arrow-upward.svg?raw';
+import arrowDown from 'lineicons/assets/svgs/regular/arrow-downward.svg?raw';
 
 // Lineicons ship with a fixed fill; recolour to follow the surrounding text
 // and size to the font.
@@ -99,6 +107,34 @@ const echoOff = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="n
 <path d="M8.5 12h12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="1.5 3" stroke-opacity="0.6"/>
 </svg>`;
 
+// Stop: a square
+const stop = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/>
+</svg>`;
+
+// Beats per measure: a bar of four beats, the first accented
+const beats = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M2 4v16M22 4v16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M6 7v10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M10 10v4M14 10v4M18 10v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+</svg>`;
+
+// Chord: three notes stacked on one stem
+const chord = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<ellipse cx="9" cy="19" rx="3" ry="2.2" transform="rotate(-20 9 19)" fill="currentColor"/>
+<ellipse cx="9" cy="13.5" rx="3" ry="2.2" transform="rotate(-20 9 13.5)" fill="currentColor"/>
+<ellipse cx="9" cy="8" rx="3" ry="2.2" transform="rotate(-20 9 8)" fill="currentColor"/>
+<path d="M11.75 18.5V2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
+// Progression: chords one after another along a line
+const progression = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M1.5 20.5h21" stroke="currentColor" stroke-width="1" stroke-opacity="0.4"/>
+<rect x="2.5" y="11" width="4.5" height="7" rx="1" fill="currentColor"/>
+<rect x="9.75" y="6" width="4.5" height="12" rx="1" fill="currentColor" fill-opacity="0.75"/>
+<rect x="17" y="9" width="4.5" height="9" rx="1" fill="currentColor" fill-opacity="0.5"/>
+</svg>`;
+
 // Instruments. A synth shows the wave its oscillator plays, one period of it;
 // a sample shows a recorded clip, an uneven waveform that swells and fades.
 const wave = (d) => `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -140,6 +176,19 @@ const ICONS = {
   vr: headset,
   phone,
   phoneViewer,
+  // the progression and its transport
+  tempo: recolour(stopwatch),
+  beats,
+  progression,
+  chord,
+  modifier: recolour(layers),
+  play: recolour(play),
+  pause: recolour(pause),
+  stop,
+  add: recolour(plus),
+  remove: recolour(trash),
+  earlier: recolour(arrowUp),
+  later: recolour(arrowDown),
 };
 
 /** An icon as a standalone SVG in a fixed colour, for drawing onto a canvas. */

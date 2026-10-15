@@ -9,8 +9,12 @@ import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { buildCells } from './Fretboard.jsx';
 import { INSTRUMENTS, loadInstrument, setEcho, unlockAudio } from './audio.js';
-import { SCALES, TUNINGS } from './music.js';
+import { SCALES, TUNINGS, chordPitchClasses } from './music.js';
+import { useProgression } from './progression.js';
 import {
+  BEATS_PER_MEASURE,
+  CHORD_ACTIONS,
+  CHORD_PREFIX,
   DROPDOWNS,
   XR_VIEWS,
   MENU_ROWS,
@@ -82,6 +86,10 @@ function useMusicState() {
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [page, setPage] = useState('main'); // the submenu showing, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
+  const [bpm, setBpm] = useState(100);
+  const [beatsPerMeasure, setBeatsPerMeasure] = useState(BEATS_PER_MEASURE[2]); // 4
+  const [progression, setProgression] = useState([]); // chords: { root, type, modifier }, see music.js
+  const [draft, setDraft] = useState({ root: 0, type: 'maj', modifier: 'none' }); // the chord Add adds
 
   const actions = useMemo(
     () => ({
@@ -99,19 +107,43 @@ function useMusicState() {
       closeDropdown: () => setDropdown(null),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
-        ({ instrument: setInstrument, scale: setScale, key: setKey, tuning: setTuning, background: setBackground })[id](choice);
+        ({
+          instrument: setInstrument,
+          scale: setScale,
+          key: setKey,
+          tuning: setTuning,
+          bpm: setBpm,
+          beats: setBeatsPerMeasure,
+          fromKey: setDraft,
+          root: (root) => setDraft((d) => ({ ...d, root })),
+          chordType: (type) => setDraft((d) => ({ ...d, type })),
+          modifier: (modifier) => setDraft((d) => ({ ...d, modifier })),
+          background: setBackground,
+        })[id](choice);
         setDropdown(null);
       },
+      addChord: (chord) => setProgression((p) => [...p, chord]),
+      removeChord: (index) => setProgression((p) => p.filter((_, i) => i !== index)),
+      /** Swaps the chord at `index` with its neighbour (`step` -1 earlier, 1 later), if it has one. */
+      moveChord: (index, step) =>
+        setProgression((p) => {
+          const to = index + step;
+          if (to < 0 || to >= p.length) return p;
+          const next = [...p];
+          [next[index], next[to]] = [next[to], next[index]];
+          return next;
+        }),
     }),
     [],
   );
-  const state = { instrument, scale, key, tuning, echo, background, menuOpen, page, dropdown };
+  const state = { instrument, scale, key, tuning, echo, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
   return [state, actions];
 }
 
-function useKeyboard(actions) {
+function useKeyboard(actions, player) {
   useEffect(() => {
     const keymap = {
+      KeyP: player.toggle,
       KeyI: actions.nextInstrument,
       KeyS: actions.nextScale,
       KeyK: actions.nextKey,
@@ -130,7 +162,7 @@ function useKeyboard(actions) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [actions]);
+  }, [actions, player.toggle]);
 }
 
 /** Turns sound on at the first tap or key press, which browsers need before playing it. */
@@ -280,7 +312,11 @@ function Hud({ menu, notes }) {
 
 export default function App() {
   const [state, actions] = useMusicState();
-  useKeyboard(actions);
+  const player = useProgression(state.progression, state.bpm, state.beatsPerMeasure);
+  useKeyboard(actions, player);
+  // the playing (or paused) chord's notes, raised on the Fretboard; stopped, the key's triad is
+  const currentChord = player.index != null ? state.progression[player.index] : null;
+  const chordTones = useMemo(() => currentChord && chordPitchClasses(currentChord), [currentChord]);
   useAudioUnlock();
   const sample = useInstrument(state.instrument);
   useEffect(() => setEcho(state.echo), [state.echo]);
@@ -354,14 +390,29 @@ export default function App() {
     else if (id.startsWith(PAGE_PREFIX)) actions.setPage(id.slice(PAGE_PREFIX.length));
     else if (id.startsWith(PICK_PREFIX)) {
       const [dropdownId, index] = id.slice(PICK_PREFIX.length).split(':');
-      const choice = dropdownChoices(env)[dropdownId]?.[Number(index)];
+      if (dropdownId.startsWith(CHORD_PREFIX)) {
+        chordAction(Number(dropdownId.slice(CHORD_PREFIX.length)), CHORD_ACTIONS[Number(index)]);
+        return;
+      }
+      const choice = dropdownChoices(env, state)[dropdownId]?.[Number(index)];
       if (choice === undefined) return;
       if (dropdownId === 'view') {
         actions.closeDropdown();
         selectView(choice);
       } else actions.pick(dropdownId, choice);
-    } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
+    } else if (DROPDOWNS.includes(id) || id.startsWith(CHORD_PREFIX)) actions.toggleDropdown(id);
     else if (id === 'echo') actions.toggleEcho();
+    else if (id === 'play') player.toggle();
+    else if (id === 'stop') player.stop();
+    else if (id === 'addChord') actions.addChord(state.draft);
+  };
+  /** A choice from a progression chord's dropdown (see CHORD_ACTIONS). */
+  const chordAction = (index, action) => {
+    actions.closeDropdown();
+    if (action === 'playFrom') player.playFrom(index);
+    else if (action === 'earlier') actions.moveChord(index, -1);
+    else if (action === 'later') actions.moveChord(index, 1);
+    else if (action === 'remove') actions.removeChord(index);
   };
   const selectView = (next) => {
     const toXR = XR_VIEWS.includes(next);
@@ -392,7 +443,7 @@ export default function App() {
     labels,
     status,
     open: state.menuOpen,
-    items: menuItems({ ...state, view }, env),
+    items: menuItems({ ...state, view, player }, env),
     onSelect,
   };
   const notes = [
@@ -406,6 +457,7 @@ export default function App() {
         <XR store={store}>
           <Scene
             cells={cells}
+            chord={chordTones}
             state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
             menu={menu}
             phone={phone}

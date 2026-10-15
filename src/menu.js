@@ -5,7 +5,21 @@
 // share a row, and a run of them can sit in a framed group (see menuBlocks).
 
 import { INSTRUMENTS, isSynth } from './audio.js';
-import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, NOTE_NAMES, SCALES, TUNINGS, builtChord, chordName, keyChords } from './music.js';
+import {
+  ALTERATIONS,
+  CHORD_MODIFIERS,
+  CHORD_TYPES,
+  NOTE_NAMES,
+  SCALES,
+  STOCK_PROGRESSIONS,
+  TUNINGS,
+  builtChord,
+  chordName,
+  keyChords,
+  matchingStock,
+  noteCss,
+  stockChords,
+} from './music.js';
 
 export const MENU_TITLE = 'XR Music';
 
@@ -102,15 +116,19 @@ export const instrumentIcon = (instrument) => (isSynth(instrument) ? instrument.
 export const BPMS = Array.from({ length: 17 }, (_, i) => 40 + i * 10); // 40..200
 export const BEATS_PER_MEASURE = [2, 3, 4, 5, 6, 7];
 
-/** What a chord in the progression can do, from its dropdown. */
-export const CHORD_ACTIONS = ['playFrom', 'earlier', 'later', 'remove'];
-const CHORD_ACTION_LABELS = ['Play From Here', 'Move Earlier', 'Move Later', 'Remove'];
-const CHORD_ACTION_ICONS = ['play', 'earlier', 'later', 'remove'];
-/** A chord in the progression: its dropdown's id is this and its index. */
+/** Instrument → Quantize: steps a beat is divided into, for timing notes (0: off). */
+export const QUANTIZE = [
+  { division: 0, name: 'Off' },
+  { division: 1, name: 'Beat' },
+  { division: 2, name: '½ Beat' },
+  { division: 4, name: '¼ Beat' },
+];
+
+/** A chord in the progression's queue: its button's id is this and its index. */
 export const CHORD_PREFIX = 'chord-';
 
-/** The dropdowns' ids (and each chord in the progression's, see CHORD_PREFIX). */
-export const DROPDOWNS = ['instrument', 'scale', 'key', 'tuning', 'bpm', 'beats', 'degree', 'alteration', 'quality', 'modifier', 'background', 'view'];
+/** The dropdowns' ids. */
+export const DROPDOWNS = ['instrument', 'quantize', 'scale', 'key', 'tuning', 'bpm', 'beats', 'stock', 'degree', 'alteration', 'quality', 'modifier', 'background', 'view'];
 
 /**
  * The choices behind each dropdown on this device, in list order. App
@@ -119,11 +137,13 @@ export const DROPDOWNS = ['instrument', 'scale', 'key', 'tuning', 'bpm', 'beats'
 export function dropdownChoices(env, state) {
   return {
     instrument: INSTRUMENTS,
+    quantize: QUANTIZE.map((q) => q.division),
     scale: SCALES,
     key: NOTE_NAMES.map((_, i) => i),
     tuning: TUNINGS,
     bpm: BPMS,
     beats: BEATS_PER_MEASURE,
+    stock: STOCK_PROGRESSIONS,
     degree: keyChords(state.key, state.scale),
     alteration: ALTERATIONS.map((a) => a.id),
     quality: CHORD_TYPES.map((t) => t.id),
@@ -133,7 +153,7 @@ export function dropdownChoices(env, state) {
   };
 }
 
-/** The Instrument page: the sound (a synth or a sample), its echo, and the board's tuning. */
+/** The Instrument page: the sound (a synth or a sample), its echo and quantizing side by side, and the board's tuning. */
 function instrumentItems(state) {
   return [
     {
@@ -143,7 +163,30 @@ function instrumentItems(state) {
       title: 'Shortcut: I',
       dropdown: dropdown(state, 'instrument', INSTRUMENTS, INSTRUMENTS.indexOf(state.instrument), INSTRUMENTS.map(instrumentIcon)),
     },
-    { id: 'echo', label: `Echo: ${state.echo ? 'On' : 'Off'}`, icon: state.echo ? 'echo' : 'echoOff', title: 'Shortcut: E' },
+    {
+      id: 'echo',
+      label: `Echo: ${state.echo ? 'On' : 'Off'}`,
+      icon: state.echo ? 'echo' : 'echoOff',
+      title: 'Shortcut: E. It repeats once a beat (see Progression → Beats per Minute)',
+      row: 'timing',
+      cols: 2,
+      small: true,
+    },
+    {
+      id: 'quantize',
+      label: `Quantize: ${QUANTIZE.find((q) => q.division === state.quantize).name}`,
+      icon: 'beats',
+      title: 'Holds each note back to the next beat, or part of one',
+      row: 'timing',
+      cols: 2,
+      small: true,
+      dropdown: dropdown(
+        state,
+        'quantize',
+        QUANTIZE.map((q) => q.name),
+        QUANTIZE.findIndex((q) => q.division === state.quantize),
+      ),
+    },
     {
       id: 'tuning',
       label: `Tuning: ${state.tuning.name}`,
@@ -165,11 +208,13 @@ function playLabel(state) {
 export const QUEUE_COLUMNS = 4;
 
 /**
- * The Progression page: the transport and the tempo, the key and scale, then the chord being built (a degree's
- * triad, then on one row its root's alteration, its quality and modifier)
- * and Add Chord, then the queue: the progression's chords, four to a row in a framed
- * group, each with a dropdown to play from it, move it or remove it. The
- * playing (or paused) chord is lit.
+ * The Progression page: the transport and the tempo, a stock progression to
+ * start from, the key and scale, then the chord being built (a degree's
+ * triad, then on one row its root's alteration, its quality and modifier),
+ * Add Chord and Clear, then the queue: the progression's chords, four to a
+ * row in a framed group. A queued chord (`queueIndex`) is dragged to reorder
+ * it, and dragged out of the panel or double-clicked to remove it (see the
+ * panels). The playing (or paused) chord is lit.
  */
 function progressionItems(state) {
   const { draft, progression, player } = state;
@@ -183,6 +228,7 @@ function progressionItems(state) {
   const transport = { row: 'transport', cols: 2, small: true };
   const tempo = { row: 'tempo', cols: 2, small: true };
   const keyScale = { row: 'keyScale', cols: 2, small: true };
+  const stock = STOCK_PROGRESSIONS.indexOf(matchingStock(progression, state.key));
   return [
     {
       id: 'play',
@@ -206,6 +252,13 @@ function progressionItems(state) {
       icon: 'beats',
       ...tempo,
       dropdown: dropdown(state, 'beats', BEATS_PER_MEASURE.map(String), BEATS_PER_MEASURE.indexOf(state.beatsPerMeasure)),
+    },
+    // a stock progression, in the key: named while the queue still matches it
+    {
+      id: 'stock',
+      label: `Stock Progression: ${stock < 0 ? '—' : STOCK_PROGRESSIONS[stock].name}`,
+      icon: 'progression',
+      dropdown: dropdown(state, 'stock', STOCK_PROGRESSIONS.map((s) => s.name), stock),
     },
     // the key and scale the degree triads come from (and the board shows)
     {
@@ -249,7 +302,8 @@ function progressionItems(state) {
       ...shape,
       dropdown: dropdown(state, 'modifier', CHORD_MODIFIERS.map((m) => m.name), modifier),
     },
-    { id: 'addChord', label: `Add Chord: ${chordName(builtChord(draft, state.key))}`, icon: 'add' },
+    { id: 'addChord', label: `Add Chord: ${chordName(builtChord(draft, state.key))}`, icon: 'add', row: 'add', cols: 2, small: true },
+    { id: 'clearProgression', label: 'Clear', icon: 'remove', row: 'add', cols: 2, small: true, disabled: !progression.length },
     ...(progression.length
       ? progression.map((chord, i) => ({
           ...queue,
@@ -257,7 +311,9 @@ function progressionItems(state) {
           label: chordName(chord),
           row: `queue-${Math.floor(i / QUEUE_COLUMNS)}`,
           current: i === player.index,
-          dropdown: dropdown(state, `${CHORD_PREFIX}${i}`, CHORD_ACTION_LABELS, -1, CHORD_ACTION_ICONS),
+          // the playing (or paused) chord in its root note's colour, as on the Fretboard
+          color: i === player.index ? noteCss(chord.root, true) : undefined,
+          queueIndex: i,
         }))
       : [{ ...queue, id: 'queue-empty', label: 'No chords yet', cols: 1, disabled: true }]),
   ];
@@ -329,7 +385,7 @@ const BACK = { id: `${PAGE_PREFIX}main`, label: 'Back', icon: 'back' };
  * with a chevron at the far right and, when open, its options beneath.
  * `row` / `cols` / `group`: see menuBlocks. `small`: a smaller font, for
  * buttons sharing a row; `compact`: just the label, centred; `current`: lit,
- * as the progression's playing chord.
+ * as the progression's playing chord, in `color` if it has one.
  * `env`: { xrSupported, passthroughAvailable, checking, views (available) }.
  */
 export function menuItems(state, env) {
@@ -351,6 +407,7 @@ const STOPPED = { playing: false, started: false, index: null, beat: 0 };
 const SAMPLE_STATE = {
   scale: SCALES[0],
   tuning: TUNINGS[0],
+  quantize: 0,
   key: 0,
   bpm: BPMS[0],
   beatsPerMeasure: BEATS_PER_MEASURE[0],
@@ -381,6 +438,7 @@ export function possibleLabels(env) {
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),
     { echo: true },
+    ...QUANTIZE.map((q) => ({ quantize: q.division })),
     ...BPMS.map((bpm) => ({ bpm })),
     ...BEATS_PER_MEASURE.map((beatsPerMeasure) => ({ beatsPerMeasure })),
     // every chord Add Chord can show, and every Alteration
@@ -397,6 +455,8 @@ export function possibleLabels(env) {
         keyChords(key, scale).map(({ step, chord }) => ({ scale, key, draft: { ...base.draft, degree: step, type: chord.type } })),
       ),
     ),
+    // every stock progression's name
+    ...STOCK_PROGRESSIONS.map((stock) => ({ progression: stockChords(stock, 0) })),
     {
       progression: Array(12).fill(longest),
       beatsPerMeasure: 7,

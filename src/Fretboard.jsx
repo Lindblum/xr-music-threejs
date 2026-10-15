@@ -192,8 +192,6 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
             geometry={geometry}
             material={materials[i]}
             position={cell.position}
-            castShadow
-            receiveShadow
             onPointerOver={(e) => {
               if (!hoverEnabled) return;
               e.stopPropagation();
@@ -276,7 +274,7 @@ function FretboardFrame({ strings, handles }) {
     material.current?.emissive.copy(held ? FRAME_HELD : touched ? FRAME_TOUCHED : NO_EMISSIVE);
   });
   return (
-    <mesh name="FretboardFrame" geometry={geometry} castShadow receiveShadow>
+    <mesh name="FretboardFrame" geometry={geometry}>
       <meshStandardMaterial ref={material} color={FRAME_COLOR} roughness={0.55} metalness={0.05} />
     </mesh>
   );

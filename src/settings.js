@@ -5,7 +5,7 @@
 
 import { INSTRUMENTS } from './audio.js';
 import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
-import { BEATS_PER_MEASURE, BPMS } from './menu.js';
+import { BEATS_PER_MEASURE, BPMS, QUANTIZE } from './menu.js';
 
 const COOKIE = 'xr-music-settings';
 const MAX_AGE = 60 * 60 * 24 * 365; // a year, renewed on every change
@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS = {
   key: 0, // C
   tuning: TUNINGS[0],
   echo: false,
+  quantize: 0, // off
   bpm: 100,
   beatsPerMeasure: 4,
   progression: [], // chords: { root, type, modifier }, see music.js
@@ -58,6 +59,7 @@ export function loadSettings() {
     key: pick(isRoot(saved.key), saved.key, d.key),
     tuning: TUNINGS.find((t) => t.id === saved.tuning) ?? d.tuning,
     echo: Boolean(saved.echo),
+    quantize: pick(QUANTIZE.some((q) => q.division === saved.quantize), saved.quantize, d.quantize),
     bpm: pick(BPMS.includes(saved.bpm), saved.bpm, d.bpm),
     beatsPerMeasure: pick(BEATS_PER_MEASURE.includes(saved.beats), saved.beats, d.beatsPerMeasure),
     progression: Array.isArray(saved.progression) ? saved.progression.map(unpackChord).filter(isChord) : d.progression,
@@ -74,6 +76,7 @@ export function saveSettings(s) {
     key: s.key,
     tuning: s.tuning.id,
     echo: s.echo,
+    quantize: s.quantize,
     bpm: s.bpm,
     beats: s.beatsPerMeasure,
     progression: s.progression.map(packChord),

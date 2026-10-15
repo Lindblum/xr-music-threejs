@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { setBeatGrid } from './audio.js';
 
 // Playing a chord progression: each chord lasts one measure (`beatsPerMeasure`
 // beats at `bpm`), and the progression loops. Stopped, there is no current
-// chord; paused, the current one stays.
+// chord; paused, the current one stays. Its beats are the quantize grid's
+// (see audio.js).
 
 /**
  * The progression's transport. Returns { playing, started (playing or paused),
@@ -14,10 +16,11 @@ export function useProgression(progression, bpm, beatsPerMeasure) {
   const [started, setStarted] = useState(false);
   const [step, setStep] = useState(0); // beats since the start
 
-  // one beat at a time, scheduled against the clock so it doesn't drift
+  // one beat at a time, scheduled against the clock so it doesn't drift; a beat falls now, for quantizing
   useEffect(() => {
     if (!playing) return;
     const beatMs = 60000 / bpm;
+    setBeatGrid({ origin: performance.now() / 1000 });
     let next = performance.now() + beatMs;
     let timer;
     const tick = () => {

@@ -11,7 +11,9 @@ import { useGazeTarget } from './Gaze.jsx';
 // elements. Collapsed, it is just the gear button. Controller rays, hand
 // pinches and gaze pick a control from where they hit the texture. A panel taller
 // than MAX_HEIGHT scrolls under its title: push the right thumbstick up or
-// down while pointing at it.
+// down while pointing at it. The progression's queued chords are dragged with
+// the trigger held to reorder them, and dragged off the panel (the pointer
+// stays captured) or double-clicked to remove them.
 
 const W = 1000; // canvas px of the reference width...
 const WIDTH_M = 0.44; // ...which is this many metres: sets the text size in XR
@@ -64,6 +66,8 @@ const COL_GAP = 16; // between buttons sharing a row
 const GROUP_PAD = 16; // inside a group's frame
 const COMPACT_FONT = `500 30px ${FONT}`; // a compact button: just its label, centred
 const COMPACT_INSET = 14;
+const DRAG_START = 24; // canvas px the pointer moves before a press on a queued chord becomes a drag
+const _local = new THREE.Vector3();
 const SMALL_FONT = `500 30px ${FONT}`; // a small button, for several sharing a row
 const SMALL_VALUE_GAP = 20;
 const SMALL_GAP = 16; // between a small button's text and its chevron
@@ -144,7 +148,7 @@ function layout(open, items, lines, panelW) {
     }
     if (block.group) {
       const bottom = y - GAP + GROUP_PAD;
-      frames.push({ x: PAD, y: frameTop, w: fullW, h: bottom - frameTop });
+      frames.push({ group: block.group, x: PAD, y: frameTop, w: fullW, h: bottom - frameTop });
       y = bottom + GAP;
     }
   }
@@ -178,22 +182,22 @@ function centredText(ctx, text, x, cy) {
   ctx.fillText(text, x, cy + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
 }
 
-function drawButtonFrame(ctx, r, { hot, disabled, current }) {
+function drawButtonFrame(ctx, r, { hot, disabled, current, color }) {
   roundRect(ctx, r.x, r.y, r.w, r.h, 18);
   ctx.fillStyle = disabled
     ? 'rgba(255, 255, 255, 0.04)'
     : current
-      ? 'rgba(80, 110, 255, 0.45)'
+      ? (color ?? 'rgba(80, 110, 255, 0.45)')
       : hot
         ? 'rgba(255, 255, 255, 0.24)'
         : 'rgba(255, 255, 255, 0.10)';
   ctx.fill();
-  ctx.strokeStyle = hot ? 'rgba(255, 255, 255, 0.85)' : current ? 'rgba(150, 175, 255, 0.9)' : 'rgba(255, 255, 255, 0.16)';
+  ctx.strokeStyle = hot || (current && color) ? 'rgba(255, 255, 255, 0.85)' : current ? 'rgba(150, 175, 255, 0.9)' : 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = hot || current ? 4 : 2;
   ctx.stroke();
 }
 
-export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect, groupRef, ...groupProps }) {
+export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect, onQueueEdit, groupRef, ...groupProps }) {
   const mesh = useRef(null);
   const [pointerKey, setPointerKey] = useState(null);
   const [gazeKey, setGazeKey] = useState(null);
@@ -207,6 +211,9 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   const clipTop = top - GAP / 2;
   const clipBottom = height - PAD / 2;
   const [scroll, setScroll] = useState(0);
+  // a queued chord being dragged: { from, label, sx, sy, px, py, moved, to, outside }, in canvas px
+  const [drag, setDrag] = useState(null);
+  const dragging = drag?.moved ? drag : null;
   const scrolled = Math.min(scroll, maxScroll);
   const pointing = useRef(false);
 
@@ -357,12 +364,32 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         continue;
       }
       const { item } = r;
-      drawButtonFrame(ctx, r, { hot: item.id === hovered && !item.disabled, disabled: item.disabled, current: item.current });
-      ctx.globalAlpha = item.disabled ? 0.4 : 1;
+      const dragged = dragging && item.queueIndex === dragging.from;
+      drawButtonFrame(ctx, r, {
+        hot: item.id === hovered && !item.disabled && !dragging,
+        disabled: item.disabled,
+        current: item.current,
+        color: item.color,
+      });
+      ctx.globalAlpha = item.disabled ? 0.4 : dragged && !dragging.outside ? 0.35 : 1;
+      if (dragged && dragging.outside) {
+        // off the panel: letting go removes it
+        roundRect(ctx, r.x, r.y, r.w, r.h, 18);
+        ctx.fillStyle = 'rgba(190, 50, 40, 0.85)';
+        ctx.fill();
+      }
+      if (dragging && !dragging.outside && item.queueIndex === dragging.to && !dragged) {
+        roundRect(ctx, r.x - 4, r.y - 4, r.w + 8, r.h + 8, 22);
+        ctx.setLineDash([14, 10]);
+        ctx.strokeStyle = 'rgba(150, 175, 255, 0.95)';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       if (item.compact) {
-        // just the label, centred
-        ctx.fillStyle = '#ffffff';
-        ctx.font = COMPACT_FONT;
+        // just the label, centred: dark on a coloured (bright) chip
+        ctx.fillStyle = item.current && item.color ? '#10131c' : '#ffffff';
+        ctx.font = item.current && item.color ? `700 30px ${FONT}` : COMPACT_FONT;
         ctx.textAlign = 'center';
         centredText(ctx, fit(ctx, item.label, r.w - 2 * COMPACT_INSET), r.x + r.w / 2, r.y + r.h / 2);
         ctx.textAlign = 'left';
@@ -399,6 +426,23 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     }
     ctx.restore();
 
+    // the dragged chord, following the pointer while it's on the panel
+    if (dragging && !dragging.outside) {
+      const w = 220;
+      const h = BUTTON_H;
+      roundRect(ctx, dragging.px - w / 2, dragging.py - h / 2, w, h, 18);
+      ctx.fillStyle = 'rgba(40, 52, 110, 0.95)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(150, 175, 255, 0.9)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = COMPACT_FONT;
+      ctx.textAlign = 'center';
+      centredText(ctx, fit(ctx, dragging.label, w - 2 * COMPACT_INSET), dragging.px, dragging.py);
+      ctx.textAlign = 'left';
+    }
+
     if (maxScroll > 0) {
       // scrollbar, in the right padding
       const trackH = clipBottom - clipTop;
@@ -413,7 +457,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       ctx.fill();
     }
     texture.needsUpdate = true;
-  }, [canvas, texture, width, height, contentHeight, rects, frames, clipTop, clipBottom, scrolled, maxScroll, open, title, status, hovered, iconsLoaded]);
+  }, [canvas, texture, width, height, contentHeight, rects, frames, clipTop, clipBottom, scrolled, maxScroll, open, title, status, hovered, iconsLoaded, dragging]);
 
   const pick = (hit) => {
     if (!hit?.uv) return null;
@@ -428,13 +472,59 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   };
   useGazeTarget(mesh, onSelect, setGazeKey, pick);
 
+  /** Where a pointer event is on the canvas, in px, even off the panel (from its captured plane). */
+  const toCanvas = (e) => {
+    const local = mesh.current.worldToLocal(_local.copy(e.pointOnFace ?? e.point));
+    return { px: (local.x / (width * PX_M) + 0.5) * width, py: (0.5 - local.y / (height * PX_M)) * height };
+  };
+  /** Where a dragged chord would go at (px, py): off the panel, onto a queued chord, or the queue's end. */
+  const dropAt = (px, py) => {
+    if (px < 0 || px > width || py < 0 || py > height) return { outside: true, to: null };
+    const y = py + scrolled;
+    const within = (q) => py >= clipTop && py <= clipBottom && px >= q.x && px <= q.x + q.w && y >= q.y && y <= q.y + q.h;
+    const chips = rects.filter((r) => r.item?.queueIndex != null);
+    const chip = chips.find(within);
+    if (chip) return { outside: false, to: chip.item.queueIndex };
+    return { outside: false, to: frames.some((f) => f.group === 'queue' && within(f)) ? chips.length - 1 : null };
+  };
+  const queuedAt = (e) => rects.find((r) => r.id === pick(e))?.item;
+
   return (
     <group ref={groupRef} userData={{ bounds }} {...groupProps}>
       <mesh
         ref={mesh}
         position={[((width - panelW) / 2) * PX_M, ((openHeight - height) / 2) * PX_M, 0]}
         onPointerOver={() => (pointing.current = true)}
-        onPointerMove={(e) => setPointerKey(pick(e))}
+        onPointerDown={(e) => {
+          const item = queuedAt(e);
+          if (item?.queueIndex == null) return;
+          // a queued chord: hold on to the pointer, so a drag carries on off the panel
+          e.stopPropagation();
+          mesh.current.setPointerCapture?.(e.pointerId);
+          const { px, py } = toCanvas(e);
+          setDrag({ from: item.queueIndex, label: item.label, sx: px, sy: py, px, py, moved: false, to: item.queueIndex, outside: false });
+        }}
+        onPointerMove={(e) => {
+          setPointerKey(pick(e));
+          if (!drag) return;
+          const { px, py } = toCanvas(e);
+          const moved = drag.moved || Math.hypot(px - drag.sx, py - drag.sy) > DRAG_START;
+          setDrag({ ...drag, px, py, moved, ...(moved ? dropAt(px, py) : {}) });
+        }}
+        onPointerUp={(e) => {
+          if (!drag) return;
+          mesh.current.releasePointerCapture?.(e.pointerId);
+          setDrag(null);
+          if (!drag.moved) return;
+          if (drag.outside) onQueueEdit?.({ type: 'remove', index: drag.from });
+          else if (drag.to != null && drag.to !== drag.from) onQueueEdit?.({ type: 'move', from: drag.from, to: drag.to });
+        }}
+        onDoubleClick={(e) => {
+          const item = queuedAt(e);
+          if (item?.queueIndex == null) return;
+          e.stopPropagation();
+          onQueueEdit?.({ type: 'remove', index: item.queueIndex });
+        }}
         onPointerOut={() => {
           pointing.current = false;
           setPointerKey(null);

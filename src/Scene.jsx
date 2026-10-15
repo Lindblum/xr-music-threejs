@@ -116,25 +116,12 @@ function Backdrop({ background }) {
   );
 }
 
-/** The old page's lighting: a soft hemisphere and an overhead sun casting onto a shadow-only floor. */
+/** The old page's lighting, without its shadows: a soft hemisphere and an overhead sun. */
 function Lights() {
   return (
     <>
       <hemisphereLight args={[0xbcbcbc, 0xa5a5a5, 3]} />
-      <directionalLight
-        position={[0, 6, 0]}
-        intensity={3}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-2}
-        shadow-camera-right={2}
-        shadow-camera-top={2}
-        shadow-camera-bottom={-2}
-      />
-      <mesh rotation-x={-Math.PI / 2} receiveShadow raycast={() => null}>
-        <planeGeometry args={[4, 4]} />
-        <shadowMaterial opacity={0.25} />
-      </mesh>
+      <directionalLight position={[0, 6, 0]} intensity={3} />
     </>
   );
 }

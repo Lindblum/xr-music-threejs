@@ -107,6 +107,54 @@ export function keyChords(key, scale) {
   });
 }
 
+/**
+ * Stock progressions, as [semitones above the key, quality, modifier] per
+ * chord (one chord a measure), and the scale each is in: the minor ones are
+ * counted from the minor key's tonic.
+ */
+export const STOCK_PROGRESSIONS = [
+  { id: 'doowop', name: 'Doo-wop', scale: 'major', chords: [[0, 'maj'], [9, 'min'], [5, 'maj'], [7, 'maj']] },
+  { id: 'axis', name: 'Pop Axis', scale: 'major', chords: [[0, 'maj'], [7, 'maj'], [9, 'min'], [5, 'maj']] },
+  { id: 'sensitive', name: 'Sensitive', scale: 'major', chords: [[9, 'min'], [5, 'maj'], [0, 'maj'], [7, 'maj']] },
+  {
+    id: 'canon',
+    name: "Pachelbel's Canon",
+    scale: 'major',
+    chords: [[0, 'maj'], [7, 'maj'], [9, 'min'], [4, 'min'], [5, 'maj'], [0, 'maj'], [5, 'maj'], [7, 'maj']],
+  },
+  {
+    id: 'blues',
+    name: '12-Bar Blues',
+    scale: 'blues',
+    chords: [0, 0, 0, 0, 5, 5, 0, 0, 7, 5, 0, 7].map((step) => [step, 'maj', 'dom7']),
+  },
+  { id: 'iiVI', name: 'Jazz ii–V–I', scale: 'major', chords: [[2, 'min', 'dom7'], [7, 'maj', 'dom7'], [0, 'maj', 'maj7'], [0, 'maj', 'maj7']] },
+  { id: 'circle', name: 'Circle of Fifths', scale: 'major', chords: [[9, 'min', 'dom7'], [2, 'min', 'dom7'], [7, 'maj', 'dom7'], [0, 'maj', 'maj7']] },
+  { id: 'royalRoad', name: 'Royal Road', scale: 'major', chords: [[5, 'maj', 'maj7'], [7, 'maj', 'dom7'], [4, 'min', 'dom7'], [9, 'min']] },
+  { id: 'andalusian', name: 'Andalusian', scale: 'minor', chords: [[0, 'min'], [10, 'maj'], [8, 'maj'], [7, 'maj']] },
+  { id: 'aeolian', name: 'Aeolian Vamp', scale: 'minor', chords: [[0, 'min'], [8, 'maj'], [10, 'maj'], [0, 'min']] },
+  { id: 'mixolydian', name: 'Mixolydian Rock', scale: 'major', chords: [[0, 'maj'], [10, 'maj'], [5, 'maj'], [0, 'maj']] },
+  { id: 'heyJoe', name: 'Hey Joe', scale: 'major', chords: [[8, 'maj'], [3, 'maj'], [10, 'maj'], [5, 'maj'], [0, 'maj']] },
+  { id: 'louie', name: 'Louie Louie', scale: 'major', chords: [[0, 'maj'], [5, 'maj'], [7, 'min'], [5, 'maj']] },
+];
+
+/** A stock progression's chords in `key`. */
+export const stockChords = (stock, key) =>
+  stock.chords.map(([step, type, modifier = 'none']) => ({ root: mod12(key + step), type, modifier }));
+
+/** The stock progression `progression` is in `key`, or null. */
+export function matchingStock(progression, key) {
+  return (
+    STOCK_PROGRESSIONS.find((stock) => {
+      const chords = stockChords(stock, key);
+      return (
+        chords.length === progression.length &&
+        chords.every((c, i) => c.root === progression[i].root && c.type === progression[i].type && c.modifier === progression[i].modifier)
+      );
+    }) ?? null
+  );
+}
+
 /** Alterations of a degree's root: semitones, and their symbols. */
 export const ALTERATIONS = [
   { id: -1, name: '♭' },

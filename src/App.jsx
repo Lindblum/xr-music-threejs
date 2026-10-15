@@ -8,13 +8,11 @@ import { MENU_TOGGLE } from './XRMenuPanel.jsx';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { buildCells } from './Fretboard.jsx';
-import { INSTRUMENTS, loadInstrument, setEcho, unlockAudio } from './audio.js';
-import { SCALES, TUNINGS, builtChord, chordPitchClasses } from './music.js';
+import { INSTRUMENTS, loadInstrument, setBeatGrid, setEcho, unlockAudio } from './audio.js';
+import { SCALES, TUNINGS, builtChord, chordPitchClasses, mod12, stockChords } from './music.js';
 import { useProgression } from './progression.js';
 import { loadSettings, saveSettings } from './settings.js';
 import {
-  CHORD_ACTIONS,
-  CHORD_PREFIX,
   DROPDOWNS,
   XR_VIEWS,
   MENU_ROWS,
@@ -85,6 +83,7 @@ function useMusicState() {
   const [key, setKey] = useState(saved.key);
   const [tuning, setTuning] = useState(saved.tuning);
   const [echo, setEchoOn] = useState(saved.echo);
+  const [quantize, setQuantize] = useState(saved.quantize); // steps per beat notes wait for (0: off)
   const [background, setBackground] = useState('skybox'); // 'solid' | 'skybox' | 'passthrough'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [page, setPage] = useState('main'); // the submenu showing, see menu.js
@@ -93,9 +92,16 @@ function useMusicState() {
   const [beatsPerMeasure, setBeatsPerMeasure] = useState(saved.beatsPerMeasure);
   const [progression, setProgression] = useState(saved.progression); // chords: { root, type, modifier }, see music.js
   const [draft, setDraft] = useState(saved.draft); // the chord Add Chord adds: { degree, alteration, type, modifier }, see music.js
+  // a new key moves the progression with it: every chord's root by the same interval
+  const keyWas = useRef(key);
+  useEffect(() => {
+    const interval = key - keyWas.current;
+    keyWas.current = key;
+    if (interval) setProgression((p) => p.map((chord) => ({ ...chord, root: mod12(chord.root + interval) })));
+  }, [key]);
   useEffect(
-    () => saveSettings({ instrument, scale, key, tuning, echo, bpm, beatsPerMeasure, progression, draft }),
-    [instrument, scale, key, tuning, echo, bpm, beatsPerMeasure, progression, draft],
+    () => saveSettings({ instrument, scale, key, tuning, echo, quantize, bpm, beatsPerMeasure, progression, draft }),
+    [instrument, scale, key, tuning, echo, quantize, bpm, beatsPerMeasure, progression, draft],
   );
 
   const actions = useMemo(
@@ -116,6 +122,7 @@ function useMusicState() {
       pick: (id, choice) => {
         ({
           instrument: setInstrument,
+          quantize: setQuantize,
           scale: setScale,
           key: setKey,
           tuning: setTuning,
@@ -131,20 +138,26 @@ function useMusicState() {
         setDropdown(null);
       },
       addChord: (chord) => setProgression((p) => [...p, chord]),
-      removeChord: (index) => setProgression((p) => p.filter((_, i) => i !== index)),
-      /** Swaps the chord at `index` with its neighbour (`step` -1 earlier, 1 later), if it has one. */
-      moveChord: (index, step) =>
+      clearProgression: () => setProgression([]),
+      /** Moves the chord at `from` to `to`, the others closing up around it. */
+      moveChordTo: (from, to) =>
         setProgression((p) => {
-          const to = index + step;
-          if (to < 0 || to >= p.length) return p;
+          if (from === to || !p[from] || to < 0 || to >= p.length) return p;
           const next = [...p];
-          [next[index], next[to]] = [next[to], next[index]];
+          next.splice(to, 0, ...next.splice(from, 1));
           return next;
         }),
+      /** Replaces the progression with a stock one in `key`, and switches to its scale. */
+      applyStock: (stock, key) => {
+        setProgression(stockChords(stock, key));
+        setScale(SCALES.find((s) => s.id === stock.scale));
+        setDropdown(null);
+      },
+      removeChord: (index) => setProgression((p) => p.filter((_, i) => i !== index)),
     }),
     [],
   );
-  const state = { instrument, scale, key, tuning, echo, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
+  const state = { instrument, scale, key, tuning, echo, quantize, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
   return [state, actions];
 }
 
@@ -232,17 +245,86 @@ function trailingIcon(item) {
   return null;
 }
 
-function MenuButton({ item, onSelect }) {
+const DRAG_START = 6; // px the pointer moves before a press on a queued chord becomes a drag
+
+/**
+ * Dragging the progression's queued chords in the windowed panel: dropped on
+ * another chord it moves there, dropped outside the panel it's removed.
+ * Returns { drag, handlers(item) }: `drag` is { from, label, x, y, to,
+ * outside } once the pointer has moved, for drawing.
+ */
+function useQueueDrag(onQueueEdit) {
+  const [drag, setDrag] = useState(null);
+  const current = useRef(null);
+  const update = (next) => {
+    current.current = next;
+    setDrag(next);
+  };
+  const handlers = (item) => ({
+    onPointerDown: (e) => {
+      if (e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      update({ from: item.queueIndex, label: item.label, startX: e.clientX, startY: e.clientY, moved: false });
+    },
+    onPointerMove: (e) => {
+      const d = current.current;
+      if (!d) return;
+      const moved = d.moved || Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > DRAG_START;
+      if (!moved) return;
+      // what's under the pointer: another queued chord, the queue's frame (its end), or outside the panel
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const chip = under?.closest('[data-queue-index]');
+      const queue = under?.closest('[data-group="queue"]');
+      const last = queue ? queue.querySelectorAll('[data-queue-index]').length - 1 : -1;
+      update({
+        ...d,
+        moved,
+        x: e.clientX,
+        y: e.clientY,
+        to: chip ? Number(chip.dataset.queueIndex) : queue ? last : null,
+        outside: !under?.closest('.hud'),
+      });
+    },
+    onPointerUp: () => {
+      const d = current.current;
+      update(null);
+      if (!d?.moved) return;
+      if (d.outside) onQueueEdit({ type: 'remove', index: d.from });
+      else if (d.to != null && d.to !== d.from) onQueueEdit({ type: 'move', from: d.from, to: d.to });
+    },
+    onPointerCancel: () => update(null),
+    onDoubleClick: () => onQueueEdit({ type: 'remove', index: item.queueIndex }),
+  });
+  return { drag: drag?.moved ? drag : null, handlers };
+}
+
+function MenuButton({ item, onSelect, queue }) {
   const trailing = !item.compact && trailingIcon(item);
-  const className = `menu-btn${item.compact ? ' compact' : ''}${item.small ? ' small' : ''}${item.current ? ' current' : ''}`;
+  const queued = item.queueIndex != null;
+  const drag = queue?.drag;
+  const className = [
+    'menu-btn',
+    item.compact && 'compact',
+    item.small && 'small',
+    item.current && 'current',
+    item.current && item.color && 'coloured',
+    queued && 'queued',
+    queued && drag?.from === item.queueIndex && 'dragging',
+    queued && drag && !drag.outside && drag.to === item.queueIndex && drag.from !== item.queueIndex && 'drop-target',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return (
     <button
       className={className}
       disabled={item.disabled}
-      title={item.title}
+      title={queued ? 'Drag to reorder; drag out of the panel or double-click to remove' : item.title}
       aria-expanded={item.dropdown ? item.dropdown.open : undefined}
       aria-current={item.current || undefined}
+      data-queue-index={queued ? item.queueIndex : undefined}
+      style={item.current && item.color ? { background: item.color, borderColor: item.color } : undefined}
       onClick={() => onSelect(item.id)}
+      {...(queued && queue ? queue.handlers(item) : {})}
     >
       {!item.compact && item.icon && <Icon name={item.icon} />}
       {item.compact ? <span className="option-label">{item.label}</span> : <Label text={item.label} />}
@@ -273,9 +355,9 @@ function MenuOptions({ dropdown, onSelect }) {
 }
 
 /** One row of buttons: a single button, or several in equal columns (see menuBlocks). */
-function MenuRow({ row, onSelect }) {
+function MenuRow({ row, onSelect, queue }) {
   const open = row.find((item) => item.dropdown?.open);
-  const buttons = row.map((item) => <MenuButton key={item.id} item={item} onSelect={onSelect} />);
+  const buttons = row.map((item) => <MenuButton key={item.id} item={item} onSelect={onSelect} queue={queue} />);
   return (
     <>
       {row[0].row == null ? (
@@ -305,19 +387,27 @@ function SizerButton({ text, compact, icon = true, small }) {
   );
 }
 
-function MenuButtons({ items, labels, onSelect }) {
+function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
+  const queue = useQueueDrag(onQueueEdit);
+  const { drag } = queue;
   return (
     <div className="menu-items">
       {menuBlocks(items).map((block, b) => {
-        const rows = block.rows.map((row) => <MenuRow key={row[0].id} row={row} onSelect={onSelect} />);
+        const rows = block.rows.map((row) => <MenuRow key={row[0].id} row={row} onSelect={onSelect} queue={queue} />);
         return block.group ? (
-          <div key={`group-${block.group}`} className="menu-group">
+          <div key={`group-${block.group}`} className="menu-group" data-group={block.group}>
             {rows}
           </div>
         ) : (
           <Fragment key={`block-${b}`}>{rows}</Fragment>
         );
       })}
+      {/* the dragged chord, following the pointer; red where letting go removes it */}
+      {drag && (
+        <div className={`queue-ghost${drag.outside ? ' outside' : ''}`} style={{ left: drag.x, top: drag.y }} aria-hidden="true">
+          {drag.outside ? `Remove ${drag.label}` : drag.label}
+        </div>
+      )}
       {/* invisible, zero-height copies of every possible label (and row of them): they set the panel's width */}
       <div className="menu-sizer" aria-hidden="true">
         {labels.map((entry) => {
@@ -366,7 +456,7 @@ function Hud({ menu, notes }) {
 
       <div className="hud-body">
         {menu.status && <p className="stats">{menu.status}</p>}
-        <MenuButtons items={menu.items} labels={menu.labels} onSelect={menu.onSelect} />
+        <MenuButtons items={menu.items} labels={menu.labels} onSelect={menu.onSelect} onQueueEdit={menu.onQueueEdit} />
         {notes.map(({ text, error }) => (
           <p key={text} className={error ? 'note error' : 'note'} role={error ? 'alert' : undefined}>
             {text}
@@ -387,6 +477,8 @@ export default function App() {
   useAudioUnlock();
   const sample = useInstrument(state.instrument);
   useEffect(() => setEcho(state.echo), [state.echo]);
+  // the beat (for the echo and quantizing) and how finely notes are quantized
+  useEffect(() => setBeatGrid({ beat: 60 / state.bpm, division: state.quantize }), [state.bpm, state.quantize]);
   const cells = useMemo(() => buildCells(state.tuning, state.key, state.scale), [state.tuning, state.key, state.scale]);
 
   const support = useXRSupport();
@@ -457,29 +549,26 @@ export default function App() {
     else if (id.startsWith(PAGE_PREFIX)) actions.setPage(id.slice(PAGE_PREFIX.length));
     else if (id.startsWith(PICK_PREFIX)) {
       const [dropdownId, index] = id.slice(PICK_PREFIX.length).split(':');
-      if (dropdownId.startsWith(CHORD_PREFIX)) {
-        chordAction(Number(dropdownId.slice(CHORD_PREFIX.length)), CHORD_ACTIONS[Number(index)]);
-        return;
-      }
       const choice = dropdownChoices(env, state)[dropdownId]?.[Number(index)];
       if (choice === undefined) return;
       if (dropdownId === 'view') {
         actions.closeDropdown();
         selectView(choice);
+      } else if (dropdownId === 'stock') {
+        player.stop();
+        actions.applyStock(choice, state.key);
       } else actions.pick(dropdownId, choice);
-    } else if (DROPDOWNS.includes(id) || id.startsWith(CHORD_PREFIX)) actions.toggleDropdown(id);
+    } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (id === 'echo') actions.toggleEcho();
     else if (id === 'play') player.toggle();
     else if (id === 'stop') player.stop();
     else if (id === 'addChord') actions.addChord(builtChord(state.draft, state.key));
+    else if (id === 'clearProgression') actions.clearProgression();
   };
-  /** A choice from a progression chord's dropdown (see CHORD_ACTIONS). */
-  const chordAction = (index, action) => {
-    actions.closeDropdown();
-    if (action === 'playFrom') player.playFrom(index);
-    else if (action === 'earlier') actions.moveChord(index, -1);
-    else if (action === 'later') actions.moveChord(index, 1);
-    else if (action === 'remove') actions.removeChord(index);
+  /** A queued chord dragged to a new place ({ type: 'move', from, to }) or removed ({ type: 'remove', index }). */
+  const onQueueEdit = (edit) => {
+    if (edit.type === 'move') actions.moveChordTo(edit.from, edit.to);
+    else if (edit.type === 'remove') actions.removeChord(edit.index);
   };
   const selectView = (next) => {
     const toXR = XR_VIEWS.includes(next);
@@ -512,6 +601,7 @@ export default function App() {
     open: state.menuOpen,
     items: menuItems({ ...state, view, player }, env),
     onSelect,
+    onQueueEdit,
   };
   const notes = [
     sample === 'error' && { text: `Couldn't load ${state.instrument}.`, error: true },
@@ -520,7 +610,7 @@ export default function App() {
 
   return (
     <>
-      <Canvas flat shadows="percentage" dpr={[1, 2]} events={sideBySideEvents} camera={{ position: [-0.5, 1.4, 2.4], fov: 50, near: 0.05, far: 200 }}>
+      <Canvas flat dpr={[1, 2]} events={sideBySideEvents} camera={{ position: [-0.5, 1.4, 2.4], fov: 50, near: 0.05, far: 200 }}>
         <XR store={store}>
           <Scene
             cells={cells}

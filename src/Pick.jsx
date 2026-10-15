@@ -140,7 +140,7 @@ export function Pick({ pickRef, handles, ...props }) {
     material.current?.emissive.copy(held ? HELD : touched ? TOUCHED : NONE);
   });
   return (
-    <mesh ref={pickRef} name="Pick" geometry={geometry} castShadow raycast={() => null} {...props}>
+    <mesh ref={pickRef} name="Pick" geometry={geometry} raycast={() => null} {...props}>
       <meshPhysicalMaterial ref={material} color={COLOR} roughness={0.3} clearcoat={1} clearcoatRoughness={0.15} />
     </mesh>
   );

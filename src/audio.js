@@ -3,7 +3,8 @@
 // square) that sound for as long as a note is held. Each "voice" is one note
 // being touched by one thing (the mouse, a controller, a hand, the pick), so
 // any number of notes can sound at once. A voice can be bent: its pitch
-// raised or lowered by semitones while it sounds.
+// raised or lowered by semitones while it sounds. Notes can be quantized:
+// held back to the next point of a beat grid. The echo repeats once a beat.
 
 import { detectPitch } from './pitch.js';
 import { frequencyToNote, noteToFrequency } from './music.js';
@@ -41,12 +42,22 @@ export const INSTRUMENTS = [
 
 const MAX_SOURCES = 32; // oldest one-shots are cut beyond this
 const SAMPLE_LEVEL = 0.45; // peak level a sample is normalised to
-const ECHO_DELAY = 0.3; // seconds
 const ECHO_FEEDBACK = 0.4;
+const MAX_ECHO = 2; // seconds: the longest echo (a beat at 30 BPM)
+const QUANTIZE_LATE = 0.04; // seconds: a note this soon after a grid point plays at once, rather than a whole step late
+const QUANTIZED_SYNTH_MIN = 0.12; // seconds: a quantized synth note let go before it starts still sounds this long
+
+/**
+ * The beat grid: when a beat fell (performance.now() seconds), a beat's
+ * length, and how many steps a beat is quantized into (0: not quantized).
+ */
+const grid = { origin: 0, beat: 0.6, division: 0 };
+let echoTime = grid.beat;
 
 let ctx = null;
 let master;
 let echoSend;
+let echoDelay;
 const SYNTH_RELEASE = 0.03; // seconds: a released synth fades with this time constant...
 const SYNTH_STOP = 0.3; // ...and its oscillator stops this long after
 const samples = new Map(); // name -> Promise<{ buffer, note, gain }>
@@ -63,14 +74,14 @@ function context() {
   // echo: a delay feeding back into itself, mixed into the output
   echoSend = ctx.createGain();
   echoSend.gain.value = 0;
-  const delay = ctx.createDelay(2);
-  delay.delayTime.value = ECHO_DELAY;
+  echoDelay = ctx.createDelay(MAX_ECHO);
+  echoDelay.delayTime.value = echoTime;
   const feedback = ctx.createGain();
   feedback.gain.value = ECHO_FEEDBACK;
-  echoSend.connect(delay);
-  delay.connect(feedback);
-  feedback.connect(delay);
-  delay.connect(master);
+  echoSend.connect(echoDelay);
+  echoDelay.connect(feedback);
+  feedback.connect(echoDelay);
+  echoDelay.connect(master);
   return ctx;
 }
 
@@ -83,6 +94,30 @@ export function unlockAudio() {
 export function setEcho(on) {
   const c = context();
   echoSend.gain.setTargetAtTime(on ? 0.6 : 0, c.currentTime, 0.02);
+}
+
+/**
+ * Sets the beat grid: `beat` (a beat's length in seconds, which the echo
+ * repeats at), `origin` (when a beat fell, in performance.now() seconds) and
+ * `division` (steps per beat that notes are quantized to; 0 for none). Any
+ * left out stay as they were.
+ */
+export function setBeatGrid({ origin, beat, division }) {
+  if (origin != null) grid.origin = origin;
+  if (division != null) grid.division = division;
+  if (beat != null) {
+    grid.beat = beat;
+    echoTime = Math.min(beat, MAX_ECHO);
+    if (ctx) echoDelay.delayTime.setTargetAtTime(echoTime, ctx.currentTime, 0.05);
+  }
+}
+
+/** Seconds until a note struck now should sound: the next grid point, or 0 when not quantized. */
+function quantizeDelay() {
+  if (!grid.division) return 0;
+  const step = grid.beat / grid.division;
+  const since = (((performance.now() / 1000 - grid.origin) % step) + step) % step;
+  return since < QUANTIZE_LATE ? 0 : step - since;
 }
 
 /**
@@ -116,7 +151,7 @@ export function loadInstrument(name) {
 
 const bendRatio = (voice) => 2 ** ((bends.get(voice) ?? 0) / 12);
 
-function playSample(voice, sample, note) {
+function playSample(voice, sample, note, at) {
   const c = context();
   const source = c.createBufferSource();
   source.buffer = sample.buffer;
@@ -134,7 +169,8 @@ function playSample(voice, sample, note) {
     if (ringing.get(voice)?.source === source) ringing.delete(voice);
     gain.disconnect();
   };
-  source.start();
+  // `at`: when it should sound, in performance.now() seconds
+  source.start(c.currentTime + Math.max(0, at - performance.now() / 1000));
   sources.push(source);
   if (sources.length > MAX_SOURCES) sources.shift().stop();
 }
@@ -159,29 +195,39 @@ function synthVoice(voice) {
 
 /**
  * `voice` touched `note` (or moved onto it). A sample sounds once and rings
- * out; a synth sounds until noteOff.
+ * out; a synth sounds until noteOff. Quantized, either waits for the next
+ * grid point.
  */
 export function noteOn(voice, note, instrument) {
   const c = context();
+  const wait = quantizeDelay();
   if (isSynth(instrument)) {
     const { type, level } = SYNTHS[instrument];
-    const { osc, gain } = synthVoice(voice);
-    osc.type = type;
-    osc.frequency.setTargetAtTime(noteToFrequency(note), c.currentTime, 0.005);
-    osc.detune.setValueAtTime((bends.get(voice) ?? 0) * 100, c.currentTime);
-    gain.gain.setTargetAtTime(level, c.currentTime, 0.01);
+    const v = synthVoice(voice);
+    const start = c.currentTime + wait;
+    v.start = start;
+    v.osc.type = type;
+    v.osc.frequency.setTargetAtTime(noteToFrequency(note), start, 0.005);
+    v.osc.detune.setValueAtTime((bends.get(voice) ?? 0) * 100, start);
+    v.gain.gain.setTargetAtTime(level, start, 0.01);
     return;
   }
+  const at = performance.now() / 1000 + wait;
   const sample = samples.get(instrument);
-  sample?.then((s) => playSample(voice, s, note)).catch(() => {});
+  sample?.then((s) => playSample(voice, s, note, at)).catch(() => {});
 }
 
-/** `voice` let go: a synth fades out and its oscillator stops; a sample rings on. */
+/**
+ * `voice` let go: a synth fades out and its oscillator stops (a quantized one
+ * not yet started still sounds briefly); a sample rings on.
+ */
 export function noteOff(voice) {
   const v = synths.get(voice);
   if (!v) return;
   synths.delete(voice);
-  const t = context().currentTime;
+  const now = context().currentTime;
+  const t = v.start > now ? v.start + QUANTIZED_SYNTH_MIN : now;
+  v.gain.gain.cancelScheduledValues(t);
   v.gain.gain.setTargetAtTime(0, t, SYNTH_RELEASE);
   v.osc.stop(t + SYNTH_STOP);
   v.osc.onended = () => v.gain.disconnect();

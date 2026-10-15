@@ -73,9 +73,9 @@ export function splitLabel(label) {
   return at < 0 ? { name: label, value: '' } : { name: label.slice(0, at), value: label.slice(at + 2) };
 }
 
-/** Submenus. The top page links to each, and Music to Progression; each starts with a Back button. */
-export const PAGES = ['main', 'music', 'progression', 'video'];
-const PAGE_TITLES = { main: MENU_TITLE, music: 'Music', progression: 'Progression', video: 'Video' };
+/** Submenus. The top page links to each; each starts with a Back button. */
+export const PAGES = ['main', 'instrument', 'progression', 'video'];
+const PAGE_TITLES = { main: MENU_TITLE, instrument: 'Instrument', progression: 'Progression', video: 'Video' };
 export const PAGE_PREFIX = 'page:';
 
 export const menuTitle = (page) => PAGE_TITLES[page];
@@ -97,7 +97,7 @@ function dropdown(state, id, choices, current, icons) {
 /** An instrument's icon: its wave for a synth, a recorded clip for a sample. */
 export const instrumentIcon = (instrument) => (isSynth(instrument) ? instrument.toLowerCase() : 'sample');
 
-/** Music → BPM and Beats per Measure choices. */
+/** Progression → Beats per Minute and Beats per Measure choices. */
 export const BPMS = Array.from({ length: 17 }, (_, i) => 40 + i * 10); // 40..200
 export const BEATS_PER_MEASURE = [2, 3, 4, 5, 6, 7];
 
@@ -132,11 +132,12 @@ export function dropdownChoices(env, state) {
   };
 }
 
-function musicItems(state) {
+/** The Instrument page: the sound (a synth or a sample), its echo, and the board's tuning, key and scale. */
+function instrumentItems(state) {
   return [
     {
       id: 'instrument',
-      label: `Instrument: ${state.instrument}`,
+      label: `Sample: ${state.instrument}`,
       icon: instrumentIcon(state.instrument),
       title: 'Shortcut: I',
       dropdown: dropdown(state, 'instrument', INSTRUMENTS, INSTRUMENTS.indexOf(state.instrument), INSTRUMENTS.map(instrumentIcon)),
@@ -163,29 +164,8 @@ function musicItems(state) {
       title: 'Shortcut: S',
       dropdown: dropdown(state, 'scale', SCALES.map((sc) => sc.name), SCALES.indexOf(state.scale)),
     },
-    {
-      id: 'bpm',
-      label: `Beats per Minute: ${state.bpm}`,
-      icon: 'tempo',
-      dropdown: dropdown(state, 'bpm', BPMS.map(String), BPMS.indexOf(state.bpm)),
-    },
-    {
-      id: 'beats',
-      label: `Beats per Measure: ${state.beatsPerMeasure}`,
-      icon: 'beats',
-      dropdown: dropdown(state, 'beats', BEATS_PER_MEASURE.map(String), BEATS_PER_MEASURE.indexOf(state.beatsPerMeasure)),
-    },
-    {
-      id: `${PAGE_PREFIX}progression`,
-      label: `Progression: ${progressionSummary(state.progression)}`,
-      icon: 'progression',
-      submenu: true,
-    },
   ];
 }
-
-const progressionSummary = (progression) =>
-  progression.length ? `${progression.length} Chord${progression.length > 1 ? 's' : ''}` : 'Empty';
 
 /** Play / Pause, with where the progression is: "Pause: 2/4 · Beat 3". */
 function playLabel(state) {
@@ -198,9 +178,9 @@ function playLabel(state) {
 export const QUEUE_COLUMNS = 4;
 
 /**
- * The Progression page: the transport, then the chord being built (a degree's
- * triad, its root flattened or sharpened, its quality and modifier) and Add
- * Chord, then the queue: the progression's chords, four to a row in a framed
+ * The Progression page: the transport and the tempo, then the chord being built (a degree's
+ * triad, then on one row its root's alteration, its quality and modifier)
+ * and Add Chord, then the queue: the progression's chords, four to a row in a framed
  * group, each with a dropdown to play from it, move it or remove it. The
  * playing (or paused) chord is lit.
  */
@@ -212,6 +192,9 @@ function progressionItems(state) {
   const quality = CHORD_TYPES.findIndex((t) => t.id === draft.type);
   const modifier = CHORD_MODIFIERS.findIndex((m) => m.id === draft.modifier);
   const queue = { group: 'queue', compact: true, cols: QUEUE_COLUMNS };
+  const shape = { row: 'shape', cols: 3, small: true };
+  const transport = { row: 'transport', cols: 2, small: true };
+  const tempo = { row: 'tempo', cols: 2, small: true };
   return [
     {
       id: 'play',
@@ -219,34 +202,46 @@ function progressionItems(state) {
       icon: player.playing ? 'pause' : 'play',
       title: 'Shortcut: P',
       disabled: !progression.length,
+      ...transport,
     },
-    { id: 'stop', label: 'Stop', icon: 'stop', disabled: !player.started },
+    { id: 'stop', label: 'Stop', icon: 'stop', disabled: !player.started, ...transport },
+    {
+      id: 'bpm',
+      label: `Beats per Minute: ${state.bpm}`,
+      icon: 'tempo',
+      ...tempo,
+      dropdown: dropdown(state, 'bpm', BPMS.map(String), BPMS.indexOf(state.bpm)),
+    },
+    {
+      id: 'beats',
+      label: `Beats per Measure: ${state.beatsPerMeasure}`,
+      icon: 'beats',
+      ...tempo,
+      dropdown: dropdown(state, 'beats', BEATS_PER_MEASURE.map(String), BEATS_PER_MEASURE.indexOf(state.beatsPerMeasure)),
+    },
     {
       id: 'degree',
       label: `Degree Triad: ${degree < 0 ? '—' : degrees[degree].label}`,
       icon: 'scale',
       dropdown: dropdown(state, 'degree', degrees.map((d) => d.label), degree),
     },
+    // the chord's shape, side by side without icons
     {
       id: 'alteration',
       label: `Alteration: ${ALTERATIONS[alteration].name}`,
-      icon: 'key',
+      ...shape,
       dropdown: dropdown(state, 'alteration', ALTERATIONS.map((a) => a.name), alteration),
     },
     {
       id: 'quality',
       label: `Quality: ${CHORD_TYPES[quality].name}`,
-      icon: 'chord',
-      row: 'quality',
-      cols: 2,
+      ...shape,
       dropdown: dropdown(state, 'quality', CHORD_TYPES.map((t) => t.name), quality),
     },
     {
       id: 'modifier',
       label: `Modifier: ${CHORD_MODIFIERS[modifier].name}`,
-      icon: 'modifier',
-      row: 'quality',
-      cols: 2,
+      ...shape,
       dropdown: dropdown(state, 'modifier', CHORD_MODIFIERS.map((m) => m.name), modifier),
     },
     { id: 'addChord', label: `Add Chord: ${chordName(builtChord(draft, state.key))}`, icon: 'add' },
@@ -319,22 +314,26 @@ function videoItems(state, env) {
 }
 
 const BACK = { id: `${PAGE_PREFIX}main`, label: 'Back', icon: 'back' };
-const BACK_TO_MUSIC = { id: `${PAGE_PREFIX}music`, label: 'Back', icon: 'back' };
 
 /**
  * The buttons on `state.page`. Items: { id, label ("Name: Value", see
- * splitLabel), icon, disabled?, title?, submenu?, dropdown? }. `submenu`:
+ * splitLabel), icon?, disabled?, title?, submenu?, dropdown?, and for
+ * layout row?, cols?, group?, small?, compact?, current? }. `submenu`:
  * the id ("page:<page>") opens that page, drawn with an arrow at the far
  * right. `dropdown`: { open, options: [{ id, label, selected }] }, drawn
  * with a chevron at the far right and, when open, its options beneath.
+ * `row` / `cols` / `group`: see menuBlocks. `small`: a smaller font, for
+ * buttons sharing a row; `compact`: just the label, centred; `current`: lit,
+ * as the progression's playing chord.
  * `env`: { xrSupported, passthroughAvailable, checking, views (available) }.
  */
 export function menuItems(state, env) {
-  if (state.page === 'music') return [BACK, ...musicItems(state)];
-  if (state.page === 'progression') return [BACK_TO_MUSIC, ...progressionItems(state)];
+  if (state.page === 'instrument') return [BACK, ...instrumentItems(state)];
+  if (state.page === 'progression') return [BACK, ...progressionItems(state)];
   if (state.page === 'video') return [BACK, ...videoItems(state, env)];
   return [
-    { id: `${PAGE_PREFIX}music`, label: 'Music', icon: 'instrument', submenu: true },
+    { id: `${PAGE_PREFIX}instrument`, label: 'Instrument', icon: 'instrument', submenu: true },
+    { id: `${PAGE_PREFIX}progression`, label: 'Progression', icon: 'progression', submenu: true },
     { id: `${PAGE_PREFIX}video`, label: 'Video', icon: 'video', submenu: true },
   ];
 }
@@ -355,13 +354,13 @@ const SAMPLE_STATE = {
   player: STOPPED,
 };
 export const MENU_ROWS =
-  1 + Math.max(musicItems(SAMPLE_STATE).length, progressionItems(SAMPLE_STATE).length, videoItems(SAMPLE_STATE, {}).length);
+  1 + Math.max(instrumentItems(SAMPLE_STATE).length, progressionItems(SAMPLE_STATE).length, videoItems(SAMPLE_STATE, {}).length);
 
 /**
  * Every label the buttons can show, on every page, so both panels can size
  * themselves to the widest one and not change width as values change. A
- * button that shares a row comes as { row: [labels side by side], compact,
- * group } instead, for the row's width. (The dropdowns' choices sit two to a
+ * button that shares a row comes as { row: [labels side by side], icon,
+ * small, compact, group } instead, for the row's width. (The dropdowns' choices sit two to a
  * row in less room, so they don't set it.)
  */
 export function possibleLabels(env) {
@@ -411,7 +410,13 @@ export function possibleLabels(env) {
           // a full row, as wide as it can get: short rows (the queue's last) are measured as if full
           const cols = row[0].cols ?? row.length;
           const texts = Array.from({ length: cols }, (_, i) => row[Math.min(i, row.length - 1)].label);
-          rows.set(texts.join('\n'), { row: texts, compact: Boolean(row[0].compact), group: block.group != null });
+          rows.set(texts.join('\n'), {
+            row: texts,
+            icon: Boolean(row[0].icon),
+            small: Boolean(row[0].small),
+            compact: Boolean(row[0].compact),
+            group: block.group != null,
+          });
         }
   return [...labels, ...rows.values()];
 }

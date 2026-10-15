@@ -13,8 +13,8 @@ const VERSION = 1;
 
 /** The defaults, as the page first opens. */
 export const DEFAULT_SETTINGS = {
-  instrument: INSTRUMENTS[0],
-  scale: SCALES[0],
+  instrument: 'Trombone',
+  scale: SCALES[0], // Major
   key: 0, // C
   tuning: TUNINGS[0],
   echo: false,

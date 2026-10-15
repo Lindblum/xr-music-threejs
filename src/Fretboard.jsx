@@ -261,7 +261,10 @@ function frameGeometry(strings) {
   return geometry;
 }
 
-/** The picture frame around the notes: the handle for the whole Fretboard. It glows while touched, more while held. */
+/**
+ * The picture frame around the notes: the handle for the whole Fretboard. It
+ * glows while touched or pointed at (`handles.current.aiming`), more while held.
+ */
 function FretboardFrame({ strings, handles }) {
   const geometry = useMemo(() => frameGeometry(strings), [strings]);
   useEffect(() => () => geometry.dispose(), [geometry]);
@@ -269,7 +272,7 @@ function FretboardFrame({ strings, handles }) {
   useFrame(() => {
     const { touching, holding } = handles.current;
     const held = Object.values(holding).some(Boolean);
-    const touched = Object.values(touching).some(Boolean);
+    const touched = Object.values(touching).some(Boolean) || Object.values(handles.current.aiming ?? {}).includes('board');
     material.current?.emissive.copy(held ? FRAME_HELD : touched ? FRAME_TOUCHED : NO_EMISSIVE);
   });
   return (

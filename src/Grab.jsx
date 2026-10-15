@@ -19,6 +19,10 @@ import { playClick } from './audio.js';
 // takes it off one (with a click), and let go near a controller it docks
 // there, pointing forward from it.
 //
+// A grip also takes what the controller's ray points at, at any distance:
+// the frame, the pick or the panel, whichever is nearest (and glows, so you
+// can see what it'll take); something touched comes first.
+//
 // A grip pressed with the controller's tip on the pick, or on the
 // Fretboard's frame, takes hold of it: with one hand it follows that hand
 // rigidly, moving and turning with it; with both hands on it (as in Tilt
@@ -170,7 +174,8 @@ function frameDockOffset(board, strings, panel) {
  * relative to) are refs; `strings` is the Fretboard's row count, for the
  * frame's size. Writes which hands hold the frame into
  * `handles.current.holding`, and which touch and hold the pick into
- * `handles.current.pick` ({ touching, holding, docked }). `pickDock.current`
+ * `handles.current.pick` ({ touching, holding, docked }), and what each free
+ * hand's ray points at into `handles.current.aiming`. `pickDock.current`
  * is where the pick is docked ({ to: 'left' | 'right' | null, placed, scale }),
  * and the pick must be a direct child of the scene. `menuDock.current.to`
  * is where the panel is docked: 'left', 'right', 'frame' or null (free), and
@@ -193,6 +198,7 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
       handles.current.pick = { touching: {}, holding: {}, docked: null };
       handles.current.bending = {};
       handles.current.bendingHands = {};
+      handles.current.aiming = {};
       return;
     }
     const controllers = readControllers(frame, referenceSpace, origin.current);
@@ -205,6 +211,30 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
     const pickTouching = {};
     const bending = {}; // cell index -> how far it's pulled along the frets, in board metres
     const bendingHands = {}; // hand -> the cell it's bending
+    const aiming = {}; // hand -> what its ray would grab: 'menu' | 'pick' | 'board'
+    const frameMesh = fretboard?.getObjectByName('FretboardFrame');
+    const aimHits = [];
+
+    /** What `hand`'s ray points at that a grip could take, nearest first: { target, hit } or null. */
+    const aim = (hand, c) => {
+      raycaster.ray.copy(c.ray);
+      const candidates = [];
+      if (panel && isShown(panel)) {
+        const [hit] = raycaster.intersectObject(panel, true);
+        if (hit) candidates.push({ target: 'menu', hit });
+      }
+      // the pick's mesh opts out of pointer events, so it's tested directly; not from the controller it's docked on
+      if (thePick?.visible && pDock.to !== hand) {
+        aimHits.length = 0;
+        THREE.Mesh.prototype.raycast.call(thePick, raycaster, aimHits);
+        if (aimHits.length) candidates.push({ target: 'pick', hit: aimHits.sort((a, b) => a.distance - b.distance)[0] });
+      }
+      if (frameMesh) {
+        const [hit] = raycaster.intersectObject(frameMesh, false);
+        if (hit) candidates.push({ target: 'board', hit });
+      }
+      return candidates.sort((a, b) => a.hit.distance - b.hit.distance)[0] ?? null;
+    };
 
     /** Where the held panel would dock if let go now: the other hand, 'frame' or null. */
     const dockZone = (hand) => {
@@ -223,6 +253,9 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
         _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
         pickTouching[hand] = touchesPick(thePick, _tip, GRAB_RADIUS);
       }
+      // what a grip from this hand would take by pointing, unless it's holding something
+      const aimed = c && !(c.squeeze && grab) ? aim(hand, c) : null;
+      if (aimed) aiming[hand] = aimed.target;
       if (!c?.squeeze) {
         // letting go of the pick, if no other hand has it, docks it on a controller within reach
         const other = hand === 'left' ? 'right' : 'left';
@@ -248,8 +281,24 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
         delete grabs.current[hand];
         continue;
       }
-      if (!grab && pickTouching[hand]) {
-        // a new grip with the tip on the pick takes the pick, off its dock if it's docked
+      const shown = panel && isShown(panel);
+      _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
+      // touching comes first: the pick, the panel (not from the controller it's docked on, which is always close to it),
+      // a note, the frame; then whatever the ray points at
+      const menuTouched =
+        !grab && shown && dock.to !== hand && (touchesPanel(panel, _tip, PANEL_REACH) || touchesPanel(panel, c.position, PANEL_REACH));
+      const noteTouched = !grab && fretboard ? touchedCells(fretboard, _tip, RADIUS, c.trigger) : [];
+      const frameTouched = !grab && fretboard && touchesFrame(fretboard, strings, _tip, GRAB_RADIUS);
+      let take = null;
+      if (!grab) {
+        if (pickTouching[hand]) take = { target: 'pick' };
+        else if (menuTouched) take = { target: 'menu', point: _tip };
+        else if (noteTouched.length) take = { target: 'note' };
+        else if (frameTouched) take = { target: 'board' };
+        else if (aimed) take = { target: aimed.target, point: aimed.hit.point };
+      }
+      if (take?.target === 'pick') {
+        // a new grip on the pick takes it, off its dock if it's docked
         if (pDock.to) {
           playClick('detach');
           pulse(c.gamepad, DETACH_PULSE);
@@ -259,15 +308,7 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
         grab = grabs.current[hand] = { target: 'pick', zone: null };
       }
       if (!grab) {
-        // a new grip: the menu if this controller is pointing at it or touching it, else the frame if its tip is on it
-        raycaster.ray.copy(c.ray);
-        _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
-        const shown = panel && isShown(panel);
-        const [hit] = shown ? raycaster.intersectObject(panel, true) : [];
-        // not by touch from the controller it's docked on, which is always close to it
-        const touched =
-          !hit && shown && dock.to !== hand && (touchesPanel(panel, _tip, PANEL_REACH) || touchesPanel(panel, c.position, PANEL_REACH));
-        if (hit || touched) {
+        if (take?.target === 'menu') {
           if (dock.to) {
             playClick('detach');
             pulse(c.gamepad, DETACH_PULSE);
@@ -280,17 +321,16 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
           grab = {
             target: 'menu',
             offset: gripInverse.clone().multiply(panel.matrixWorld),
-            point: (hit ? hit.point : _tip).clone().applyMatrix4(gripInverse), // grows about where it was taken, in grip space
+            point: take.point.clone().applyMatrix4(gripInverse), // grows about where it was taken, in grip space
             size: 1,
             grow: FREE_SCALE / _scale.setFromMatrixScale(panel.matrixWorld).x,
             zone: null,
           };
-        } else if (fretboard && touchedCells(fretboard, _tip, RADIUS, c.trigger).length) {
+        } else if (take?.target === 'note') {
           // the note the tip is on (the nearest, if it's between two): bent from where the hand is now
-          const [index] = touchedCells(fretboard, _tip, RADIUS, c.trigger);
-          grab = { target: 'note', index, from: fretboard.worldToLocal(_tip.clone()).x, step: 0 };
+          grab = { target: 'note', index: noteTouched[0], from: fretboard.worldToLocal(_tip.clone()).x, step: 0 };
           pulse(c.gamepad, BEND_PULSE);
-        } else if (fretboard && touchesFrame(fretboard, strings, _tip, GRAB_RADIUS)) {
+        } else if (take?.target === 'board') {
           grab = { target: 'board' };
           pulse(c.gamepad, GRAB_PULSE);
         } else {
@@ -325,7 +365,10 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
     }
     const flags = (hands) => ({ left: Boolean(hands.left), right: Boolean(hands.right) });
     handles.current.holding = flags(holding.board);
+    // the pick glows when pointed at, as when touched
+    for (const hand of HANDS) if (aiming[hand] === 'pick') pickTouching[hand] = true;
     handles.current.pick = { touching: flags(pickTouching), holding: flags(holding.pick), docked: pDock.to };
+    handles.current.aiming = aiming;
     handles.current.bending = bending;
     handles.current.bendingHands = bendingHands;
     carryByHands(fretboard, holding.board, carried.current.board);

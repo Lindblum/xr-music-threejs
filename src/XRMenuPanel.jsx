@@ -64,6 +64,9 @@ const COL_GAP = 16; // between buttons sharing a row
 const GROUP_PAD = 16; // inside a group's frame
 const COMPACT_FONT = `500 30px ${FONT}`; // a compact button: just its label, centred
 const COMPACT_INSET = 14;
+const SMALL_FONT = `500 30px ${FONT}`; // a small button, for several sharing a row
+const SMALL_VALUE_GAP = 20;
+const SMALL_GAP = 16; // between a small button's text and its chevron
 
 let measureCtx;
 function textWidth(text, font) {
@@ -72,19 +75,25 @@ function textWidth(text, font) {
   return measureCtx.measureText(text).width;
 }
 
+/** A button's text style: its font, the least gap between name and value, and the gap before its chevron. */
+const textStyle = (small) =>
+  small ? { font: SMALL_FONT, valueGap: SMALL_VALUE_GAP, gap: SMALL_GAP } : { font: BUTTON_FONT, valueGap: VALUE_GAP, gap: ICON_GAP };
+
 /** The open panel's width: the widest possible button (or row of them), or the title row if wider. */
-function labelWidth(label) {
+function labelWidth(label, small) {
+  const { font, valueGap } = textStyle(small);
   const { name, value } = splitLabel(label);
-  return value ? textWidth(`${name}:`, BUTTON_FONT) + VALUE_GAP + textWidth(value, BUTTON_FONT) : textWidth(name, BUTTON_FONT);
+  return value ? textWidth(`${name}:`, font) + valueGap + textWidth(value, font) : textWidth(name, font);
 }
 
-const buttonWidth = (label) => INSET + ICON + ICON_GAP + labelWidth(label) + ICON_GAP + TRAILING + INSET;
+const buttonWidth = (label, { icon = true, small = false } = {}) =>
+  INSET + (icon ? ICON + ICON_GAP : 0) + labelWidth(label, small) + textStyle(small).gap + TRAILING + INSET;
 const compactWidth = (label) => 2 * COMPACT_INSET + textWidth(label, COMPACT_FONT);
 
 /** A possibleLabels entry's width: a button, or a row of them in equal columns (inside a group's frame, if it's in one). */
 function entryWidth(entry) {
   if (typeof entry === 'string') return buttonWidth(entry);
-  const widest = Math.max(...entry.row.map(entry.compact ? compactWidth : buttonWidth));
+  const widest = Math.max(...entry.row.map((label) => (entry.compact ? compactWidth(label) : buttonWidth(label, entry))));
   return entry.row.length * widest + (entry.row.length - 1) * COL_GAP + (entry.group ? 2 * GROUP_PAD : 0);
 }
 
@@ -359,24 +368,28 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         ctx.globalAlpha = 1;
         continue;
       }
-      const img = iconImage(item.icon, redraw);
-      if (img.complete && img.naturalWidth) ctx.drawImage(img, r.x + INSET, r.y + (r.h - ICON) / 2, ICON, ICON);
+      let tx = r.x + INSET;
+      if (item.icon) {
+        const img = iconImage(item.icon, redraw);
+        if (img.complete && img.naturalWidth) ctx.drawImage(img, tx, r.y + (r.h - ICON) / 2, ICON, ICON);
+        tx += ICON + ICON_GAP;
+      }
+      const style = textStyle(item.small);
       ctx.fillStyle = '#ffffff';
-      ctx.font = BUTTON_FONT;
+      ctx.font = style.font;
       // the name on the left, the value against the right edge
-      const tx = r.x + INSET + ICON + ICON_GAP;
       let right = r.x + r.w - INSET;
       const trailing = trailingIcon(item);
       if (trailing) {
         const icon = iconImage(trailing, redraw);
         if (icon.complete && icon.naturalWidth) ctx.drawImage(icon, right - TRAILING, r.y + (r.h - TRAILING) / 2, TRAILING, TRAILING);
-        right -= TRAILING + ICON_GAP;
+        right -= TRAILING + style.gap;
       }
       const { name, value } = splitLabel(item.label);
       const nameText = value ? `${name}:` : name;
       centredText(ctx, fit(ctx, nameText, right - tx), tx, r.y + r.h / 2);
       if (value) {
-        const room = right - tx - ctx.measureText(nameText).width - VALUE_GAP;
+        const room = right - tx - ctx.measureText(nameText).width - style.valueGap;
         ctx.textAlign = 'right';
         centredText(ctx, fit(ctx, value, room), right, r.y + r.h / 2);
         ctx.textAlign = 'left';

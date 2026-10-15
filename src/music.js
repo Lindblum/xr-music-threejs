@@ -12,8 +12,8 @@ export const frequencyToNote = (hz) => 12 * Math.log2(hz / 440) + 9;
 
 /** Scales as semitones above the key. `chord` is the triad on the key, raised a little further. */
 export const SCALES = [
-  { id: 'majorPentatonic', name: 'Major Pentatonic', steps: [0, 2, 4, 7, 9], chord: [0, 4, 7] },
   { id: 'major', name: 'Major', steps: [0, 2, 4, 5, 7, 9, 11], chord: [0, 4, 7] },
+  { id: 'majorPentatonic', name: 'Major Pentatonic', steps: [0, 2, 4, 7, 9], chord: [0, 4, 7] },
   { id: 'minorPentatonic', name: 'Minor Pentatonic', steps: [0, 3, 5, 7, 10], chord: [0, 3, 7] },
   { id: 'minor', name: 'Natural Minor', steps: [0, 2, 3, 5, 7, 8, 10], chord: [0, 3, 7] },
   { id: 'blues', name: 'Blues', steps: [0, 3, 5, 6, 7, 10], chord: [0, 3, 7] },
@@ -31,68 +31,87 @@ export const TUNINGS = [
 
 export const isInSteps = (note, key, steps) => steps.includes(mod12(Math.round(note) - key));
 
-/** Chord types: the triad, as semitones above the root. */
+/**
+ * Chord qualities: the chord's notes, as semitones above the root, and the
+ * symbol a chord name writes after the root for each modifier. Fully
+ * diminished (°) is the diminished triad, and its 7th is the diminished 7th
+ * (`seventh`), so with 7 it's °7; half diminished (ø) has its flat 7th
+ * already.
+ */
 export const CHORD_TYPES = [
-  { id: 'maj', name: 'Maj', steps: [0, 4, 7] },
-  { id: 'min', name: 'Min', steps: [0, 3, 7] },
-  { id: 'sus2', name: 'Sus2', steps: [0, 2, 7] },
-  { id: 'sus4', name: 'Sus4', steps: [0, 5, 7] },
+  { id: 'maj', name: 'Maj', steps: [0, 4, 7], suffix: { none: '', dom7: '7', maj7: 'Δ7', six: '6', add9: 'add9' } },
+  { id: 'min', name: 'Min', steps: [0, 3, 7], suffix: { none: 'm', dom7: 'm7', maj7: 'mΔ7', six: 'm6', add9: 'm(add9)' } },
+  // a sus chord's "sus2" / "sus4" follows its modifier's symbol
+  { id: 'sus2', name: 'Sus2', steps: [0, 2, 7], suffix: { none: 'sus2', dom7: '7sus2', maj7: 'Δ7sus2', six: '6sus2', add9: 'sus2(add9)' } },
+  { id: 'sus4', name: 'Sus4', steps: [0, 5, 7], suffix: { none: 'sus4', dom7: '7sus4', maj7: 'Δ7sus4', six: '6sus4', add9: 'sus4(add9)' } },
+  {
+    id: 'dim',
+    name: '°',
+    steps: [0, 3, 6],
+    seventh: 9,
+    suffix: { none: '°', dom7: '°7', maj7: '°Δ7', six: '°7', add9: '°(add9)' },
+  },
+  {
+    id: 'hdim',
+    name: 'ø',
+    steps: [0, 3, 6, 10],
+    suffix: { none: 'ø7', dom7: 'ø7', maj7: 'ø7(Δ7)', six: 'ø7(6)', add9: 'ø9' },
+  },
+  { id: 'aug', name: '+', steps: [0, 4, 8], suffix: { none: '+', dom7: '+7', maj7: '+Δ7', six: '+6', add9: '+(add9)' } },
 ];
 
-/** Notes added to the triad, as semitones above the root (an octave down for the 9th). */
+/** Notes added to the chord, as semitones above the root (an octave down for the 9th). */
 export const CHORD_MODIFIERS = [
   { id: 'none', name: 'None', steps: [] },
-  { id: 'dom7', name: 'Dom7', steps: [10] },
-  { id: 'maj7', name: 'Maj7', steps: [11] },
+  { id: 'dom7', name: '7', steps: [10] },
+  { id: 'maj7', name: 'Δ7', steps: [11] },
   { id: 'six', name: '6', steps: [9] },
-  { id: 'add9', name: 'Add9', steps: [2] },
+  { id: 'add9', name: 'add9', steps: [2] },
 ];
 
 const chordType = (id) => CHORD_TYPES.find((t) => t.id === id);
 const chordModifier = (id) => CHORD_MODIFIERS.find((m) => m.id === id);
 
-// what each modifier writes after the root, by chord type; a sus chord's "sus2" / "sus4" follows it
-const MAJOR_SUFFIX = { none: '', dom7: '7', maj7: 'maj7', six: '6', add9: 'add9' };
-const MINOR_SUFFIX = { none: 'm', dom7: 'm7', maj7: 'm(maj7)', six: 'm6', add9: 'm(add9)' };
-const SUS_SUFFIX = { none: '', dom7: '7', maj7: 'maj7', six: '6', add9: '' };
-
-/** A chord ({ root: 0..11, type, modifier }) as it's written: C, Am7, Gsus4, Fmaj7, D7sus4, Csus2(add9). */
-export function chordName({ root, type, modifier }) {
-  const name = NOTE_NAMES[root];
-  if (type === 'maj') return name + MAJOR_SUFFIX[modifier];
-  if (type === 'min') return name + MINOR_SUFFIX[modifier];
-  return `${name}${SUS_SUFFIX[modifier]}${type}${modifier === 'add9' ? '(add9)' : ''}`;
-}
+/** A chord ({ root: 0..11, type, modifier }) as it's written: C, Am7, Gsus4, FΔ7, B°, Bø7, C°7, E+, D7sus4. */
+export const chordName = ({ root, type, modifier }) => NOTE_NAMES[root] + chordType(type).suffix[modifier];
 
 /** The chord's notes as pitch classes (0..11, C = 0). */
 export function chordPitchClasses({ root, type, modifier }) {
-  return new Set([...chordType(type).steps, ...chordModifier(modifier).steps].map((step) => mod12(root + step)));
+  const quality = chordType(type);
+  // a 7th on a fully diminished chord is the diminished 7th
+  const added = modifier === 'dom7' && quality.seventh != null ? [quality.seventh] : chordModifier(modifier).steps;
+  return new Set([...quality.steps, ...added].map((step) => mod12(root + step)));
 }
 
 const NUMERALS = ['I', 'bII', 'II', 'bIII', 'III', 'IV', '#IV', 'V', 'bVI', 'VI', 'bVII', 'VII'];
 
+// how a degree's roman numeral shows its triad: lower case for minor and diminished, with ° or +
+const numeralFor = (step, type) =>
+  ({ min: NUMERALS[step].toLowerCase(), dim: `${NUMERALS[step].toLowerCase()}°`, aug: `${NUMERALS[step]}+` })[type] ?? NUMERALS[step];
+
+// the order a degree's triad is looked for in: stacked thirds first, sus chords last
+const TRIAD_SEARCH = ['maj', 'min', 'dim', 'aug', 'sus2', 'sus4'].map(chordType);
+
 /**
- * The triad on each degree of the key's scale: the first type whose notes
- * all lie in the scale (major or minor, else a sus chord), named by its
- * roman numeral, lower case for minor: "ii: Dm". Degrees with none (a major
- * scale's diminished vii) are left out. Each: { step (semitones above the
- * key), chord, label }.
+ * The triad on each degree of the key's scale: the first quality whose notes
+ * all lie in the scale (major, minor, diminished or augmented, else a sus
+ * chord), named by its roman numeral: "ii: Dm", "vii°: B°". Degrees with none
+ * are left out. Each: { step (semitones above the key), chord, label }.
  */
 export function keyChords(key, scale) {
   return scale.steps.flatMap((step) => {
-    const type = CHORD_TYPES.find((t) => t.steps.every((s) => scale.steps.includes(mod12(step + s))));
+    const type = TRIAD_SEARCH.find((t) => t.steps.every((s) => scale.steps.includes(mod12(step + s))));
     if (!type) return [];
     const chord = { root: mod12(key + step), type: type.id, modifier: 'none' };
-    const numeral = type.id === 'min' ? NUMERALS[step].toLowerCase() : NUMERALS[step];
-    return [{ step, chord, label: `${numeral}: ${chordName(chord)}` }];
+    return [{ step, chord, label: `${numeralFor(step, type.id)}: ${chordName(chord)}` }];
   });
 }
 
-/** Alterations of a degree's root: semitones, and names. */
+/** Alterations of a degree's root: semitones, and their symbols. */
 export const ALTERATIONS = [
-  { id: -1, name: 'Flat' },
-  { id: 0, name: 'Natural' },
-  { id: 1, name: 'Sharp' },
+  { id: -1, name: '♭' },
+  { id: 0, name: '♮' },
+  { id: 1, name: '♯' },
 ];
 
 /**

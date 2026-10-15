@@ -234,7 +234,7 @@ function trailingIcon(item) {
 
 function MenuButton({ item, onSelect }) {
   const trailing = !item.compact && trailingIcon(item);
-  const className = `menu-btn${item.compact ? ' compact' : ''}${item.current ? ' current' : ''}`;
+  const className = `menu-btn${item.compact ? ' compact' : ''}${item.small ? ' small' : ''}${item.current ? ' current' : ''}`;
   return (
     <button
       className={className}
@@ -244,7 +244,7 @@ function MenuButton({ item, onSelect }) {
       aria-current={item.current || undefined}
       onClick={() => onSelect(item.id)}
     >
-      {!item.compact && <Icon name={item.icon} />}
+      {!item.compact && item.icon && <Icon name={item.icon} />}
       {item.compact ? <span className="option-label">{item.label}</span> : <Label text={item.label} />}
       {trailing && <Icon name={trailing} />}
     </button>
@@ -291,14 +291,14 @@ function MenuRow({ row, onSelect }) {
 }
 
 /** A label's stand-in in the sizer: as wide as its button would be. */
-function SizerButton({ text, compact }) {
+function SizerButton({ text, compact, icon = true, small }) {
   return compact ? (
     <div className="menu-btn compact">
       <span className="option-label">{text}</span>
     </div>
   ) : (
-    <div className="menu-btn">
-      <Icon name="instrument" />
+    <div className={`menu-btn${small ? ' small' : ''}`}>
+      {icon && <Icon name="instrument" />}
       <Label text={text} />
       <Icon name="dropdown" />
     </div>
@@ -325,7 +325,7 @@ function MenuButtons({ items, labels, onSelect }) {
           const row = (
             <div className="menu-row sizer-row">
               {entry.row.map((text, i) => (
-                <SizerButton key={i} text={text} compact={entry.compact} />
+                <SizerButton key={i} text={text} compact={entry.compact} icon={entry.icon} small={entry.small} />
               ))}
             </div>
           );

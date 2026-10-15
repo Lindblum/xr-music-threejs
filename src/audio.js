@@ -21,8 +21,9 @@ const SYNTHS = {
 /** Whether `instrument` is a synth rather than a sample. */
 export const isSynth = (instrument) => instrument in SYNTHS;
 
-/** Instrument samples in public/sounds, then the synths. */
+/** The synths, then the instrument samples in public/sounds. */
 export const INSTRUMENTS = [
+  ...Object.keys(SYNTHS),
   'Trombone',
   'Piano',
   'Banjo',
@@ -36,7 +37,6 @@ export const INSTRUMENTS = [
   'Strings',
   'Xylophone',
   'Bass Guitar',
-  ...Object.keys(SYNTHS),
 ];
 
 const MAX_SOURCES = 32; // oldest one-shots are cut beyond this

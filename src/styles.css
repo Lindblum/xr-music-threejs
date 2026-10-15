@@ -114,6 +114,9 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 /* a compact button: just its label, centred */
 .menu-btn.compact { justify-content: center; gap: 0; padding: 4px 6px; font-size: 13.5px; }
 .menu-btn.compact .option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a smaller button, for several sharing a row */
+.menu-btn.small { gap: 6px; padding: 4px 8px; font-size: 13px; }
+.menu-btn.small .label { gap: 8px; }
 /* the progression's playing chord */
 .menu-btn.current { background: rgba(80, 110, 255, 0.4); border-color: rgba(150, 175, 255, 0.85); }
 .icon { display: inline-flex; flex: none; align-items: center; line-height: 0; }

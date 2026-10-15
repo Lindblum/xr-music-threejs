@@ -114,11 +114,15 @@ export function pickPoints(pick) {
 
 /**
  * Docked on a controller, in its target-ray space (-Z forward out of the
- * controller): lying flat, tip forward, reaching about 8 cm past the
- * controller's front.
+ * controller): standing upright like a blade, faces to the sides, tip
+ * forward, all of it just in front of the controller (its back edge 2.5 cm
+ * ahead, its tip 12.5 cm).
  */
-export const PICK_DOCK_POSITION = new THREE.Vector3(0, 0, -0.03);
-export const PICK_DOCK_ROTATION = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+export const PICK_DOCK_POSITION = new THREE.Vector3(0, 0, -0.07);
+export const PICK_DOCK_ROTATION = new THREE.Quaternion().setFromRotationMatrix(
+  // pick +X up, +Y back (so the tip, -Y, points forward), its face (+Z) to the right
+  new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)),
+);
 
 /**
  * The pick, in `pickRef`. `handles.current.pick` is { touching, holding }

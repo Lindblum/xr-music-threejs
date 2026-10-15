@@ -21,7 +21,7 @@ import { isInSteps, mod12, noteCss, noteName, noteRgb } from './music.js';
 export const FRETS = 25; // open string plus 24 frets
 export const SPACING = 0.1; // metres between cube centres
 export const CUBE = 0.08; // cube edge
-const SCALE_RAISE = 0.1;
+const SCALE_RAISE = 0.15;
 const CHORD_RAISE = 0.3;
 const TOUCH_EMISSIVE = new THREE.Color(0, 0, 1); // the old page's blue glow
 const NO_EMISSIVE = new THREE.Color(0, 0, 0);

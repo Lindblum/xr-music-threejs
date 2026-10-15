@@ -13,6 +13,7 @@ import { SCALES, TUNINGS, builtChord, chordPitchClasses, mod12, stockChords } fr
 import { useProgression } from './progression.js';
 import { loadSettings, saveSettings } from './settings.js';
 import {
+  CHORD_PREFIX,
   DROPDOWNS,
   XR_VIEWS,
   MENU_ROWS,
@@ -164,7 +165,9 @@ function useMusicState() {
 function useKeyboard(actions, player) {
   useEffect(() => {
     const keymap = {
+      Space: player.toggle,
       KeyP: player.toggle,
+      Escape: player.stop,
       KeyI: actions.nextInstrument,
       KeyS: actions.nextScale,
       KeyK: actions.nextKey,
@@ -172,7 +175,6 @@ function useKeyboard(actions, player) {
       KeyE: actions.toggleEcho,
       Enter: actions.toggleMenu,
       NumpadEnter: actions.toggleMenu,
-      Escape: actions.toggleMenu,
     };
     const onKey = (e) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, select, textarea')) return;
@@ -181,9 +183,17 @@ function useKeyboard(actions, player) {
       e.preventDefault();
       action(e.shiftKey ? -1 : 1);
     };
+    // a focused button would also take the space bar as a click, on its key up
+    const onKeyUp = (e) => {
+      if (e.code === 'Space' && !e.target.closest?.('input, select, textarea')) e.preventDefault();
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [actions, player.toggle]);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [actions, player.toggle, player.stop]);
 }
 
 /** Turns sound on at the first tap or key press, which browsers need before playing it. */
@@ -256,6 +266,7 @@ const DRAG_START = 6; // px the pointer moves before a press on a queued chord b
 function useQueueDrag(onQueueEdit) {
   const [drag, setDrag] = useState(null);
   const current = useRef(null);
+  const dragged = useRef(false); // a drag just ended: the click that follows isn't one
   const update = (next) => {
     current.current = next;
     setDrag(next);
@@ -288,6 +299,7 @@ function useQueueDrag(onQueueEdit) {
     onPointerUp: () => {
       const d = current.current;
       update(null);
+      dragged.current = Boolean(d?.moved);
       if (!d?.moved) return;
       if (d.outside) onQueueEdit({ type: 'remove', index: d.from });
       else if (d.to != null && d.to !== d.from) onQueueEdit({ type: 'move', from: d.from, to: d.to });
@@ -295,7 +307,13 @@ function useQueueDrag(onQueueEdit) {
     onPointerCancel: () => update(null),
     onDoubleClick: () => onQueueEdit({ type: 'remove', index: item.queueIndex }),
   });
-  return { drag: drag?.moved ? drag : null, handlers };
+  /** Whether a click on a queued chord is really the end of a drag (and forgets it). */
+  const wasDrag = () => {
+    const was = dragged.current;
+    dragged.current = false;
+    return was;
+  };
+  return { drag: drag?.moved ? drag : null, handlers, wasDrag };
 }
 
 function MenuButton({ item, onSelect, queue }) {
@@ -318,12 +336,12 @@ function MenuButton({ item, onSelect, queue }) {
     <button
       className={className}
       disabled={item.disabled}
-      title={queued ? 'Drag to reorder; drag out of the panel or double-click to remove' : item.title}
+      title={queued ? 'Click to go to this chord; drag to reorder; drag out of the panel or double-click to remove' : item.title}
       aria-expanded={item.dropdown ? item.dropdown.open : undefined}
       aria-current={item.current || undefined}
       data-queue-index={queued ? item.queueIndex : undefined}
       style={item.current && item.color ? { background: item.color, borderColor: item.color } : undefined}
-      onClick={() => onSelect(item.id)}
+      onClick={() => (!queued || !queue?.wasDrag()) && onSelect(item.id)}
       {...(queued && queue ? queue.handlers(item) : {})}
     >
       {!item.compact && item.icon && <Icon name={item.icon} />}
@@ -561,6 +579,7 @@ export default function App() {
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (id === 'echo') actions.toggleEcho();
     else if (id === 'play') player.toggle();
+    else if (id.startsWith(CHORD_PREFIX)) player.select(Number(id.slice(CHORD_PREFIX.length)));
     else if (id === 'stop') player.stop();
     else if (id === 'addChord') actions.addChord(builtChord(state.draft, state.key));
     else if (id === 'clearProgression') actions.clearProgression();

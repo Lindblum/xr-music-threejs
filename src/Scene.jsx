@@ -235,12 +235,6 @@ export default function Scene({ cells, chord, state, menu, phone, holding, onExi
   const phoneStereo = phone && inAR && state.stereo;
   // a phone has no controllers: it plays by gaze, and a 1-second stare clicks the panel
   const hasControllers = useXR((s) => s.inputSourceStates.some((input) => input.type === 'controller'));
-  const leftController = useXR((s) =>
-    s.inputSourceStates.some((input) => input.type === 'controller' && input.inputSource.handedness === 'left'),
-  );
-  const rightController = useXR((s) =>
-    s.inputSourceStates.some((input) => input.type === 'controller' && input.inputSource.handedness === 'right'),
-  );
   const immersive = inSession || state.handheld;
   // the motion-sensor view has no AR session: passthrough is the rear camera
   const cameraPassthrough = state.handheld && state.passthrough;
@@ -250,8 +244,8 @@ export default function Scene({ cells, chord, state, menu, phone, holding, onExi
   const origin = useRef(null);
   const menuPanel = useRef(null);
   const pick = useRef(null);
-  const menuDock = useRef({ to: null, placed: false }); // where the panel is docked: see Grab.jsx
-  const pickDock = useRef({ to: null, placed: false, scale: 1 }); // where the pick is docked: see Grab.jsx
+  const menuDock = useRef({ to: null, placed: false, home: 'left' }); // where the panel is docked: see Grab.jsx
+  const pickDock = useRef({ to: null, placed: false, scale: 1, home: 'right' }); // where the pick is docked: see Grab.jsx
   // hands on the frame, and touching and holding the pick: see Touch.jsx and Grab.jsx
   const handles = useRef({ touching: {}, holding: {}, pick: { touching: {}, holding: {} } });
   const strings = cells.length / FRETS;
@@ -270,19 +264,15 @@ export default function Scene({ cells, chord, state, menu, phone, holding, onExi
     board.current.scale.setScalar(1);
   }, [inSession]);
 
-  // controllers arriving dock a panel the player hasn't moved on the left one (or the right, if
-  // that's all there is), and the pick on the right one (or the left); losing them all (to hand
+  // controllers dock the panel and the pick until moved (see Grab.jsx); losing them all (to hand
   // tracking) frees a controller-docked panel, and the pick where it started
   useEffect(() => {
     const dock = menuDock.current;
     const pDock = pickDock.current;
     if (!inSession) {
-      Object.assign(dock, { to: null, placed: false });
-      Object.assign(pDock, { to: null, placed: false, scale: 1 });
-    } else if (hasControllers) {
-      if (!dock.to && !dock.placed) dock.to = leftController ? 'left' : 'right';
-      if (!pDock.to && !pDock.placed) pDock.to = rightController ? 'right' : 'left';
-    } else if (pDock.to) {
+      Object.assign(dock, { to: null, placed: false, home: 'left' });
+      Object.assign(pDock, { to: null, placed: false, scale: 1, home: 'right' });
+    } else if (!hasControllers && pDock.to) {
       pDock.to = null;
       const p = pick.current;
       if (p) {
@@ -301,7 +291,7 @@ export default function Scene({ cells, chord, state, menu, phone, holding, onExi
       panel.scale.setScalar(1);
       panel.visible = true;
     }
-  }, [inSession, hasControllers, leftController, rightController]);
+  }, [inSession, hasControllers]);
 
   return (
     <>

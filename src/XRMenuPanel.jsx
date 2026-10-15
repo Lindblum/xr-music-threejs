@@ -11,9 +11,9 @@ import { useGazeTarget } from './Gaze.jsx';
 // elements. Collapsed, it is just the gear button. Controller rays, hand
 // pinches and gaze pick a control from where they hit the texture. A panel taller
 // than MAX_HEIGHT scrolls under its title: push the right thumbstick up or
-// down while pointing at it. The progression's queued chords are dragged with
-// the trigger held to reorder them, and dragged off the panel (the pointer
-// stays captured) or double-clicked to remove them.
+// down while pointing at it. A queued chord of the progression is selected by
+// the trigger, dragged with the trigger held to reorder it, and dragged off
+// the panel (the pointer stays captured) or double-clicked to remove it.
 
 const W = 1000; // canvas px of the reference width...
 const WIDTH_M = 0.44; // ...which is this many metres: sets the text size in XR
@@ -214,6 +214,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   // a queued chord being dragged: { from, label, sx, sy, px, py, moved, to, outside }, in canvas px
   const [drag, setDrag] = useState(null);
   const dragging = drag?.moved ? drag : null;
+  const dragged = useRef(false); // a drag just ended: the click that follows isn't one
   const scrolled = Math.min(scroll, maxScroll);
   const pointing = useRef(false);
 
@@ -515,6 +516,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
           if (!drag) return;
           mesh.current.releasePointerCapture?.(e.pointerId);
           setDrag(null);
+          dragged.current = drag.moved;
           if (!drag.moved) return;
           if (drag.outside) onQueueEdit?.({ type: 'remove', index: drag.from });
           else if (drag.to != null && drag.to !== drag.from) onQueueEdit?.({ type: 'move', from: drag.from, to: drag.to });
@@ -530,6 +532,10 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
           setPointerKey(null);
         }}
         onClick={(e) => {
+          if (dragged.current) {
+            dragged.current = false;
+            return;
+          }
           const key = pick(e);
           if (key == null) return;
           e.stopPropagation();

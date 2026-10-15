@@ -100,15 +100,17 @@ export const PICK_PREFIX = 'pick:';
  * A dropdown: the button shows the current choice, and when it is the open
  * one (`state.dropdown`), lists every choice beneath it, `columns` to a row,
  * each with `icons[i]` if given. Choosing one sends "pick:<id>:<index>".
- * Packed more than CHECKED_COLUMNS to a row, the chosen one is shown by its
- * highlight alone, without a check mark, to leave its label room.
+ * Packed more than CHECKED_COLUMNS to a row (or with `checks` false), the
+ * chosen one is shown by its highlight alone, without a check mark, to leave
+ * its label room.
  */
-export const CHECKED_COLUMNS = 4;
+const CHECKED_COLUMNS = 4;
 
-function dropdown(state, id, choices, current, icons, columns = 2) {
+function dropdown(state, id, choices, current, icons, columns = 2, checks = columns <= CHECKED_COLUMNS) {
   return {
     open: state.dropdown === id,
     columns,
+    checks,
     options: choices.map((label, i) => ({ id: `${PICK_PREFIX}${id}:${i}`, label, icon: icons?.[i], selected: i === current })),
   };
 }
@@ -165,7 +167,7 @@ export function dropdownChoices(env, state) {
   };
 }
 
-/** The Instrument page: the sound (a synth or a sample), its echo and quantizing side by side, and the board's tuning. */
+/** The Instrument page: the sound (a synth or a sample), its echo and quantizing side by side, velocity sensitivity, and the board's tuning. */
 function instrumentItems(state) {
   return [
     {
@@ -173,7 +175,8 @@ function instrumentItems(state) {
       label: `Sample: ${state.instrument}`,
       icon: instrumentIcon(state.instrument),
       title: 'Shortcut: I',
-      dropdown: dropdown(state, 'instrument', INSTRUMENTS, INSTRUMENTS.indexOf(state.instrument), INSTRUMENTS.map(instrumentIcon)),
+      // four to a row, each with its icon: no room for a check mark too
+      dropdown: dropdown(state, 'instrument', INSTRUMENTS, INSTRUMENTS.indexOf(state.instrument), INSTRUMENTS.map(instrumentIcon), 4, false),
     },
     {
       id: 'echo',
@@ -196,6 +199,12 @@ function instrumentItems(state) {
         QUANTIZE.map((q) => q.name),
         QUANTIZE.findIndex((q) => q.division === state.quantize),
       ),
+    },
+    {
+      id: 'velocity',
+      label: `Velocity Sensitivity: ${state.velocity ? 'On' : 'Off'}`,
+      icon: 'velocity',
+      title: 'Notes are as loud as the controller, pick or mouse is fast as it strikes them',
     },
     {
       id: 'tuning',
@@ -458,6 +467,7 @@ const SAMPLE_STATE = {
   tuning: TUNINGS[0],
   quantize: 0,
   playOnSelect: 'off',
+  velocity: false,
   key: 0,
   bpm: BPMS[0],
   beatsPerMeasure: BEATS_PER_MEASURE[0],
@@ -492,6 +502,7 @@ export function possibleLabels(env) {
     { echo: true },
     ...QUANTIZE.map((q) => ({ quantize: q.division })),
     ...PLAY_ON_SELECT.map((p) => ({ playOnSelect: p.id })),
+    { velocity: true },
     ...BPMS.map((bpm) => ({ bpm })),
     ...BEATS_PER_MEASURE.map((beatsPerMeasure) => ({ beatsPerMeasure })),
     // every chord Add Chord can show, and every Alteration

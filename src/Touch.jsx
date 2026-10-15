@@ -7,13 +7,15 @@ import { pickPoints } from './Pick.jsx';
 // Playing the Fretboard in XR, as in three.js's haptics demo: each
 // controller's tip (or each hand's index fingertip) is a small mallet.
 // Touching a cube strikes its note (every cube it touches, if it's between
-// them); a controller kicks as it enters a cube
-// and hums softly while it stays inside. Notes outside the scale only sound
-// while the controller's trigger is held (a tracked hand can't play them). Touching the frame gives a lighter
-// tap and hum, so you can feel where to take hold of it. The whole pick is a
-// mallet too: held or docked, it kicks and hums the hand holding it, and that
-// controller's own tip stops playing; that hand's trigger lets it play any
-// note. A hand bending a note (see Grab.jsx) plays only that note.
+// them); a controller kicks as it enters a cube and hums softly while it
+// stays inside. Notes outside the scale only sound while the controller's
+// trigger is held (a tracked hand can't play them). Touching the frame gives
+// a lighter tap and hum, so you can feel where to take hold of it. The whole
+// pick is a mallet too: held or docked, it kicks and hums the hand holding
+// it, and that controller's own tip stops playing; that hand's trigger lets
+// it play any note. A hand bending a note (see Grab.jsx) plays only that
+// note. Each mallet strikes at a velocity (0..1) from its speed, for
+// velocity-sensitive loudness (see Scene.jsx).
 
 const HANDS = ['left', 'right'];
 export const RADIUS = 0.02; // mallet radius, metres
@@ -24,9 +26,11 @@ const FRAME_TAP = [0.4, 30]; // on touching the frame
 const FRAME_HUM = [0.1, 60]; // ...and while on it
 const TRIGGER = 0; // xr-standard gamepad button index
 const HUM_EVERY = 0.05; // seconds between hum pulses, so they overlap into a steady hum
+const FULL_SPEED = 1.5; // metres per second: a mallet this fast strikes at full velocity
 
 const _pose = new THREE.Matrix4();
 const _dir = new THREE.Vector3();
+const _pickCentre = new THREE.Vector3();
 
 /** Each hand's mallet in world space: { position, gamepad?, controller, trigger }, read straight from the XR frame. */
 function readMallets(frame, referenceSpace, origin) {
@@ -66,13 +70,15 @@ export function pulse(gamepad, [strength, ms]) {
  * have it docked) from `handles.current.pick` and which note each hand is
  * bending from
  * `handles.current.bendingHands`. Renders the controller mallets.
+ * `touch` also gets each strike's velocity, from the mallet's speed.
  */
 export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
   const gl = useThree((s) => s.gl);
   const nextHum = useRef({});
   const balls = useRef({});
+  const motion = useRef({}); // voice -> { position, speed } last frame, for its velocity
 
-  useFrame((_, __, frame) => {
+  useFrame((_, dt, frame) => {
     const referenceSpace = gl.xr.getReferenceSpace();
     const mallets = frame && origin.current && referenceSpace ? readMallets(frame, referenceSpace, origin.current) : {};
     const now = performance.now() / 1000;
@@ -83,13 +89,21 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
     const bendingHands = handles.current.bendingHands ?? {};
     const fretboard = board.current;
 
+    /** A mallet's velocity (0..1) from how fast `position` moves, smoothed over a few frames. */
+    const velocity = (voice, position) => {
+      const was = motion.current[voice];
+      const speed = was && dt > 0 ? 0.5 * was.speed + 0.5 * (position.distanceTo(was.position) / dt) : 0;
+      motion.current[voice] = { position: position.clone(), speed };
+      return Math.min(speed / FULL_SPEED, 1);
+    };
+
     /** One mallet's frame: strike what it touches, and kick or hum `gamepad`. */
     const play = (voice, m, radius, frameToo) => {
       // a hand bending a note keeps sounding just that one, whatever it slides past
       const touched = () =>
         m.points ? touchedCellsByPoints(fretboard, m.points, radius, m.trigger) : touchedCells(fretboard, m.position, radius, m.trigger);
       const indices = bendingHands[voice] != null ? [bendingHands[voice]] : m && fretboard ? touched() : [];
-      const struck = touch(voice, indices);
+      const struck = touch(voice, indices, m?.velocity ?? 1);
       const index = indices.length ? indices[0] : null;
       const wasOnFrame = Boolean(touching[voice]);
       const onFrame = Boolean(frameToo && m && fretboard && touchesFrame(fretboard, cells.length / FRETS, m.position, radius));
@@ -114,6 +128,8 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
         ball.visible = Boolean(m?.controller);
         if (m) ball.position.copy(m.position);
       }
+      if (mallets[hand]) mallets[hand].velocity = velocity(hand, mallets[hand].position);
+      else delete motion.current[hand];
       play(hand, m, RADIUS, true);
     }
 
@@ -122,7 +138,8 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
       // all of the pick, with the trigger and haptics of the hand holding it (the first, if both)
       const holder = mallets[HANDS.find((hand) => pickHolding[hand])];
       const { points, radius } = pickPoints(p);
-      play('pick', p.visible ? { points, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger) } : null, radius, false);
+      const speed = velocity('pick', p.getWorldPosition(_pickCentre));
+      play('pick', p.visible ? { points, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger), velocity: speed } : null, radius, false);
     } else {
       touch('pick', []);
     }

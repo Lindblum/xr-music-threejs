@@ -23,7 +23,6 @@ import {
   cycle,
   menuItems,
   menuTitle,
-  CHECKED_COLUMNS,
   dropdownChoices,
   menuBlocks,
   rowSpans,
@@ -94,6 +93,7 @@ function useMusicState() {
   const [tuning, setTuning] = useState(saved.tuning);
   const [echo, setEchoOn] = useState(saved.echo);
   const [quantize, setQuantize] = useState(saved.quantize); // steps per beat notes wait for (0: off)
+  const [velocity, setVelocity] = useState(saved.velocity); // notes as loud as they're struck hard
   const [playOnSelect, setPlayOnSelect] = useState(saved.playOnSelect); // played on selecting a chord: 'off' | 'root' | 'chord'
   const [background, setBackground] = useState('skybox'); // 'solid' | 'skybox' | 'passthrough'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
@@ -111,8 +111,8 @@ function useMusicState() {
     if (interval) setProgression((p) => p.map((chord) => ({ ...chord, root: mod12(chord.root + interval) })));
   }, [key]);
   useEffect(
-    () => saveSettings({ instrument, scale, key, tuning, echo, quantize, playOnSelect, bpm, beatsPerMeasure, progression, draft }),
-    [instrument, scale, key, tuning, echo, quantize, playOnSelect, bpm, beatsPerMeasure, progression, draft],
+    () => saveSettings({ instrument, scale, key, tuning, echo, quantize, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft }),
+    [instrument, scale, key, tuning, echo, quantize, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft],
   );
 
   const actions = useMemo(
@@ -122,6 +122,7 @@ function useMusicState() {
       nextKey: (step = 1) => setKey((k) => (k + step + 12) % 12),
       nextTuning: (step = 1) => setTuning((t) => cycle(TUNINGS, t, step)),
       toggleEcho: () => setEchoOn((v) => !v),
+      toggleVelocity: () => setVelocity((v) => !v),
       toggleMenu: () => setMenuOpen((v) => !v),
       setPage: (p) => {
         setPage(p);
@@ -169,7 +170,7 @@ function useMusicState() {
     }),
     [],
   );
-  const state = { instrument, scale, key, tuning, echo, quantize, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
+  const state = { instrument, scale, key, tuning, echo, quantize, velocity, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
   return [state, actions];
 }
 
@@ -376,7 +377,7 @@ function MenuOptions({ dropdown, onSelect }) {
         >
           {option.icon && <Icon name={option.icon} />}
           <span className="option-label">{option.label}</span>
-          {option.selected && (dropdown.columns ?? 2) <= CHECKED_COLUMNS && <Icon name="check" />}
+          {option.selected && dropdown.checks !== false && <Icon name="check" />}
         </button>
       ))}
     </div>
@@ -597,6 +598,7 @@ export default function App() {
       } else actions.pick(dropdownId, choice);
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (id === 'echo') actions.toggleEcho();
+    else if (id === 'velocity') actions.toggleVelocity();
     else if (id === 'play') player.toggle();
     else if (id.startsWith(CHORD_PREFIX)) {
       const index = Number(id.slice(CHORD_PREFIX.length));

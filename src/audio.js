@@ -5,6 +5,7 @@
 // any number of notes can sound at once. A voice can be bent: its pitch
 // raised or lowered by semitones while it sounds. Notes can be quantized:
 // held back to the next point of a beat grid. The echo repeats once a beat.
+// A note's velocity (0..1, how hard it was struck) sets its loudness.
 
 import { detectPitch } from './pitch.js';
 import { frequencyToNote, noteToFrequency } from './music.js';
@@ -46,6 +47,11 @@ const ECHO_FEEDBACK = 0.4;
 const MAX_ECHO = 2; // seconds: the longest echo (a beat at 30 BPM)
 const QUANTIZE_LATE = 0.04; // seconds: a note this soon after a grid point plays at once, rather than a whole step late
 const QUANTIZED_SYNTH_MIN = 0.12; // seconds: a quantized synth note let go before it starts still sounds this long
+const MIN_VELOCITY = 0.2; // the softest note is struck at least this hard, so it's never silent
+const VELOCITY_CURVE = 1.6; // loudness rises faster than velocity, so soft and hard sound evenly spaced
+
+/** A note's gain from its velocity (0..1): 1 at full velocity, about -22 dB at none. */
+const velocityGain = (velocity) => (MIN_VELOCITY + (1 - MIN_VELOCITY) * Math.min(Math.max(velocity, 0), 1)) ** VELOCITY_CURVE;
 
 /**
  * The beat grid: when a beat fell (performance.now() seconds), a beat's
@@ -151,7 +157,7 @@ export function loadInstrument(name) {
 
 const bendRatio = (voice) => 2 ** ((bends.get(voice) ?? 0) / 12);
 
-function playSample(voice, sample, note, at) {
+function playSample(voice, sample, note, at, loudness = 1) {
   const c = context();
   const source = c.createBufferSource();
   source.buffer = sample.buffer;
@@ -159,7 +165,7 @@ function playSample(voice, sample, note, at) {
   source.playbackRate.value = rate * bendRatio(voice);
   ringing.set(voice, { source, rate });
   const gain = c.createGain();
-  gain.gain.value = sample.gain;
+  gain.gain.value = sample.gain * loudness;
   source.connect(gain);
   gain.connect(master);
   gain.connect(echoSend);
@@ -194,13 +200,14 @@ function synthVoice(voice) {
 }
 
 /**
- * `voice` touched `note` (or moved onto it). A sample sounds once and rings
- * out; a synth sounds until noteOff. Quantized, either waits for the next
- * grid point.
+ * `voice` touched `note` (or moved onto it), at `velocity` (0..1). A sample
+ * sounds once and rings out; a synth sounds until noteOff. Quantized, either
+ * waits for the next grid point.
  */
-export function noteOn(voice, note, instrument) {
+export function noteOn(voice, note, instrument, velocity = 1) {
   const c = context();
   const wait = quantizeDelay();
+  const loudness = velocityGain(velocity);
   if (isSynth(instrument)) {
     const { type, level } = SYNTHS[instrument];
     const v = synthVoice(voice);
@@ -209,12 +216,12 @@ export function noteOn(voice, note, instrument) {
     v.osc.type = type;
     v.osc.frequency.setTargetAtTime(noteToFrequency(note), start, 0.005);
     v.osc.detune.setValueAtTime((bends.get(voice) ?? 0) * 100, start);
-    v.gain.gain.setTargetAtTime(level, start, 0.01);
+    v.gain.gain.setTargetAtTime(level * loudness, start, 0.01);
     return;
   }
   const at = performance.now() / 1000 + wait;
   const sample = samples.get(instrument);
-  sample?.then((s) => playSample(voice, s, note, at)).catch(() => {});
+  sample?.then((s) => playSample(voice, s, note, at, loudness)).catch(() => {});
 }
 
 /**

@@ -28,6 +28,8 @@ const NO_EMISSIVE = new THREE.Color(0, 0, 0);
 const JITTER = 0.1; // touched cubes shiver up to this much larger
 const RAISE_RATE = 10; // per second: how quickly cubes glide to a new chord's heights
 const RETURN_RATE = 14; // per second: how quickly a let-go bent note springs home
+const MOUSE_FULL_SPEED = 2500; // px per second: the mouse this fast onto a note strikes it at full velocity
+const MOUSE_STILL = 0.1; // seconds without a move: the mouse has stopped
 
 /** How far a cube stands out: the chord's notes furthest, then the scale's. */
 const raise = (inChord, inScale) => (inChord ? CHORD_RAISE : inScale ? SCALE_RAISE : 0);
@@ -104,8 +106,9 @@ const geometry = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
  * along the frets, in board metres). `onBend(index, semitones)` reports a
  * bent note's pitch as its cube moves.
  * `chord`: the current chord's pitch classes (a Set), or null for the key's
- * triad. `onHover(index | null)` reports the mouse: hovering sounds notes in
- * the scale or chord, and with the button down, any note. Each cube's mesh
+ * triad. `onHover(index | null, velocity)` reports the mouse: hovering sounds
+ * notes in the scale or chord (at the mouse's speed as velocity, 0..1), and
+ * with the button down, any note; a click strikes at full velocity. Each cube's mesh
  * carries `userData.playable`, whether a touch sounds it.
  */
 export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, onBend, position }) {
@@ -120,6 +123,22 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
   const playable = useMemo(() => cells.map((cell, i) => cell.inScale || inChord[i]), [cells, inChord]);
   const controls = useThree((s) => s.controls);
   const strumming = useRef(false); // the button went down on the board and is still down
+  const mouse = useRef({ x: 0, y: 0, t: 0, speed: 0 }); // the pointer's last place and its speed, px per second
+  useEffect(() => {
+    const onMove = (e) => {
+      const m = mouse.current;
+      const dt = (e.timeStamp - m.t) / 1000;
+      if (dt > 0) m.speed = 0.5 * m.speed + 0.5 * (Math.hypot(e.clientX - m.x, e.clientY - m.y) / dt);
+      Object.assign(m, { x: e.clientX, y: e.clientY, t: e.timeStamp });
+    };
+    window.addEventListener('pointermove', onMove);
+    return () => window.removeEventListener('pointermove', onMove);
+  }, []);
+  /** How hard the mouse is striking: its speed, 0 once it has stopped, as 0..1. */
+  const mouseVelocity = () => {
+    const m = mouse.current;
+    return performance.now() - m.t > MOUSE_STILL * 1000 ? 0 : Math.min(m.speed / MOUSE_FULL_SPEED, 1);
+  };
   // the button held down plays any note it passes over, so the view stays still meanwhile
   const startStrum = () => {
     strumming.current = true;
@@ -195,15 +214,15 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
             onPointerOver={(e) => {
               if (!hoverEnabled) return;
               e.stopPropagation();
-              if (playable[i] || strumming.current) onHover(i);
+              if (playable[i] || strumming.current) onHover(i, mouseVelocity());
             }}
             onPointerOut={() => hoverEnabled && mouseNote(touches) === i && onHover(null)}
             onPointerDown={(e) => {
               if (!hoverEnabled) return;
               e.stopPropagation();
               startStrum();
-              onHover(null); // a click strikes the note again
-              onHover(i);
+              onHover(null); // a click strikes the note again, at full velocity
+              onHover(i, 1);
             }}
           />
         ))}

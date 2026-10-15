@@ -119,6 +119,11 @@ const beats = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="non
 <path d="M10 10v4M14 10v4M18 10v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
 </svg>`;
 
+// Velocity: bars rising, as a note struck harder sounds louder
+const velocity = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M4 19v-3M9 19v-6M14 19v-9M19 19V5" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"/>
+</svg>`;
+
 // Chord: three notes stacked on one stem
 const chord = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
 <ellipse cx="9" cy="19" rx="3" ry="2.2" transform="rotate(-20 9 19)" fill="currentColor"/>
@@ -179,6 +184,7 @@ const ICONS = {
   // the progression and its transport
   tempo: recolour(stopwatch),
   beats,
+  velocity,
   progression,
   chord,
   modifier: recolour(layers),

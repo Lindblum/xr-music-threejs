@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { iconSvg } from './Icon.jsx';
-import { CHECKED_COLUMNS, menuBlocks, rowSpans, splitLabel } from './menu.js';
+import { menuBlocks, rowSpans, splitLabel } from './menu.js';
 import { useGazeTarget } from './Gaze.jsx';
 
 // The options panel in XR. It draws the same menu model as the windowed
@@ -151,7 +151,7 @@ function layout(open, items, lines, panelW) {
         rects.push({
           id: option.id,
           option,
-          checked: option.selected && columns <= CHECKED_COLUMNS,
+          checked: option.selected && open.dropdown.checks !== false,
           x: x + OPTION_INDENT + (i % columns) * (optionW + OPTION_GAP),
           y: y + Math.floor(i / columns) * (OPTION_H + OPTION_GAP),
           w: optionW,

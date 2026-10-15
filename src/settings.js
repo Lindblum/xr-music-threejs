@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = {
   tuning: TUNINGS[0],
   echo: false,
   quantize: 0, // off
+  velocity: false, // notes as loud as they're struck hard
   playOnSelect: 'off', // what's played when a chord in the queue is selected or landed on: 'off' | 'root' | 'chord'
   bpm: 100,
   beatsPerMeasure: 4,
@@ -61,6 +62,7 @@ export function loadSettings() {
     tuning: TUNINGS.find((t) => t.id === saved.tuning) ?? d.tuning,
     echo: Boolean(saved.echo),
     quantize: pick(QUANTIZE.some((q) => q.division === saved.quantize), saved.quantize, d.quantize),
+    velocity: Boolean(saved.velocity),
     // (once a plain on / off: on was the whole chord)
     playOnSelect:
       saved.playOnSelect === true ? 'chord' : pick(PLAY_ON_SELECT.some((p) => p.id === saved.playOnSelect), saved.playOnSelect, d.playOnSelect),
@@ -82,6 +84,7 @@ export function saveSettings(s) {
     echo: s.echo,
     quantize: s.quantize,
     playOnSelect: s.playOnSelect,
+    velocity: s.velocity,
     bpm: s.bpm,
     beats: s.beatsPerMeasure,
     progression: s.progression.map(packChord),

@@ -31,7 +31,7 @@ The Fretboard object holds the note cubes (`Notes`) inside a picture frame (`Fre
 
 ## Controls
 
-The options panel has three submenus, each marked with an arrow. **Instrument** holds Sample, Echo and Quantize (side by side) and Tuning. **Progression** holds the progression's transport and tempo, Stock Progression, Key and Scale (side by side), the chord builder and the chord queue. **Video** holds Background and View Mode. Each submenu starts with a Back button. Sample, Tuning, Key, Scale, Beats per Minute, Beats per Measure, the chord builder's settings, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row (Key's twelve notes four to a row), then pick one. Some settings share a row. The Instrument and Progression settings and the progression are saved in a cookie (for this app's folder only) and restored when the page loads. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
+The options panel has three submenus, each marked with an arrow. **Instrument** holds Sample, Echo and Quantize (side by side), Velocity Sensitivity and Tuning. **Progression** holds the progression's transport and tempo, Stock Progression, Key and Scale (side by side), the chord builder and the chord queue. **Video** holds Background and View Mode. Each submenu starts with a Back button. Sample, Tuning, Key, Scale, Beats per Minute, Beats per Measure, the chord builder's settings, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row (Key's twelve notes four to a row), then pick one. Some settings share a row. The Instrument and Progression settings and the progression are saved in a cookie (for this app's folder only) and restored when the page loads. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
 
 | Action | Desktop | XR |
 | --- | --- | --- |
@@ -40,6 +40,7 @@ The options panel has three submenus, each marked with an arrow. **Instrument** 
 | Hands-free panel | — | Look at a panel button for 1 s (a ring fills, then it clicks) |
 | Play any note, in the scale or not | Press the mouse button on it; keep the button down and drag to strum across the board (the view holds still) | Touch it while holding that controller's trigger. A tracked hand can only play notes in the scale |
 | Sample (the sound) | Instrument, `I` (`Shift+I` goes back). The synths come first, then the samples | Instrument |
+| Velocity Sensitivity | Instrument: **Velocity Sensitivity** on makes each note as loud as it's struck hard: the mouse's speed as it moves onto a note (about 2,500 px/s for full; a click is always full) | Same: the speed of the controller tip, fingertip or pick as it enters the cube (about 1.5 m/s for full). The softest touch is about 22 dB quieter than the hardest, never silent |
 | Key / Scale | Progression, side by side above Degree Triad, `K` / `S`. Changing the key transposes the progression with it | Progression |
 | Tuning | Instrument, `T` | Instrument |
 | Echo | Instrument, `E`. The echo repeats once a beat, at the Progression's Beats per Minute | Instrument |

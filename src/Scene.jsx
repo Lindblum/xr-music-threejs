@@ -181,14 +181,16 @@ function Player({ origin, board, pick, pickDock, menu, menuDock, strings, handle
  * releasing the rest, and reports whether a new note was struck; `press(source,
  * index | null)` does it for one cube or none. `bend(index, semitones)` bends
  * every voice that has sounded that cube, ringing or held, and any that
- * strikes it while it's bent. Returns [touches, touch, press, bend].
+ * strikes it while it's bent. With `velocitySensitive`, a struck note is as
+ * loud as its velocity (0..1, passed to touch and press); otherwise full.
+ * Returns [touches, touch, press, bend].
  */
-function useTouches(cells, instrument) {
+function useTouches(cells, instrument, velocitySensitive) {
   const touches = useRef(new Map());
   const voicesOf = useRef(new Map()); // cell index -> the voices that have sounded it, for bending
   const bends = useRef(new Map()); // cell index -> semitones it is bent by
-  const latest = useRef({ cells, instrument });
-  latest.current = { cells, instrument };
+  const latest = useRef({ cells, instrument, velocitySensitive });
+  latest.current = { cells, instrument, velocitySensitive };
 
   // a new board or instrument: let go of everything; still-touching hands strike again
   useEffect(() => {
@@ -198,7 +200,7 @@ function useTouches(cells, instrument) {
     allNotesOff();
   }, [cells, instrument]);
 
-  const touch = useCallback((source, indices) => {
+  const touch = useCallback((source, indices, velocity = 1) => {
     const map = touches.current;
     for (const [voice, index] of map) {
       if (!voice.startsWith(`${source}:`) || indices.includes(index)) continue;
@@ -214,12 +216,12 @@ function useTouches(cells, instrument) {
       if (!voicesOf.current.has(index)) voicesOf.current.set(index, new Set());
       voicesOf.current.get(index).add(voice);
       setBend(voice, bends.current.get(index) ?? 0);
-      noteOn(voice, cell.note, latest.current.instrument);
+      noteOn(voice, cell.note, latest.current.instrument, latest.current.velocitySensitive ? velocity : 1);
       struck = true;
     }
     return struck;
   }, []);
-  const press = useCallback((source, index) => touch(source, index == null ? [] : [index]), [touch]);
+  const press = useCallback((source, index, velocity) => touch(source, index == null ? [] : [index], velocity), [touch]);
   const bend = useCallback((index, semitones) => {
     if (semitones) bends.current.set(index, semitones);
     else bends.current.delete(index);
@@ -249,8 +251,8 @@ export default function Scene({ cells, chord, state, menu, phone, holding, onExi
   // hands on the frame, and touching and holding the pick: see Touch.jsx and Grab.jsx
   const handles = useRef({ touching: {}, holding: {}, pick: { touching: {}, holding: {} } });
   const strings = cells.length / FRETS;
-  const [touches, touch, press, bend] = useTouches(cells, state.instrument);
-  const hoverMouse = useCallback((index) => press('mouse', index), [press]);
+  const [touches, touch, press, bend] = useTouches(cells, state.instrument, state.velocity);
+  const hoverMouse = useCallback((index, velocity) => press('mouse', index, velocity), [press]);
 
   useEffect(() => {
     if (immersive) press('mouse', null);

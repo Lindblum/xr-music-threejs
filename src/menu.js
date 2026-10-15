@@ -88,8 +88,8 @@ export function splitLabel(label) {
 }
 
 /** Submenus. The top page links to each; each starts with a Back button. */
-export const PAGES = ['main', 'instrument', 'progression', 'video'];
-const PAGE_TITLES = { main: MENU_TITLE, instrument: 'Instrument', progression: 'Progression', video: 'Video' };
+export const PAGES = ['main', 'music', 'video'];
+const PAGE_TITLES = { main: MENU_TITLE, music: 'Music', video: 'Video' };
 export const PAGE_PREFIX = 'page:';
 
 export const menuTitle = (page) => PAGE_TITLES[page];
@@ -167,7 +167,7 @@ export function dropdownChoices(env, state) {
   };
 }
 
-/** The Instrument page: the sound (a synth or a sample), its echo and quantizing side by side, velocity sensitivity, and the board's tuning. */
+/** The Music page's first part: the sound (a synth or a sample), its echo and quantizing side by side, velocity sensitivity, and the board's tuning. */
 function instrumentItems(state) {
   return [
     {
@@ -198,6 +198,8 @@ function instrumentItems(state) {
         'quantize',
         QUANTIZE.map((q) => q.name),
         QUANTIZE.findIndex((q) => q.division === state.quantize),
+        undefined,
+        QUANTIZE.length,
       ),
     },
     {
@@ -227,7 +229,7 @@ function playLabel(state) {
 export const QUEUE_COLUMNS = 4;
 
 /**
- * The Progression page: the transport and the tempo, a stock progression to
+ * The Music page's second part, the progression: the transport and the tempo, a stock progression to
  * start from, the key and scale, then the chord being built (a degree's
  * triad, then on one row its root's alteration, its quality and modifier),
  * Add Chord, Clear and Play on Select on one row, then the queue: the progression's chords, four to a
@@ -357,8 +359,14 @@ function progressionItems(state) {
           label: chordName(chord),
           row: `queue-${Math.floor(i / QUEUE_COLUMNS)}`,
           current: i === player.index,
-          // the playing (or paused) chord in its root note's colour, as on the Fretboard
-          color: i === player.index ? noteCss(chord.root, true) : undefined,
+          // the playing (or paused) chord in its root note's colour, as on the Fretboard: dark, split into the
+          // measure's beats, the current beat bright
+          ...(i === player.index && {
+            color: noteCss(chord.root, true),
+            dim: noteCss(chord.root, false),
+            beats: state.beatsPerMeasure,
+            beat: player.beat,
+          }),
           queueIndex: i,
         }))
       : [{ ...queue, id: 'queue-empty', label: 'No chords yet', cols: 1, disabled: true }]),
@@ -443,16 +451,16 @@ const BACK = { id: `${PAGE_PREFIX}main`, label: 'Back', icon: 'back' };
  * `row` / `span` / `cols` / `group`: see menuBlocks and rowSpans.
  * `sizeLabel`: the label the panels size for, if not `label`. `small`: a smaller font, for
  * buttons sharing a row; `compact`: just the label, centred; `current`: lit,
- * as the progression's playing chord, in `color` if it has one.
+ * as the progression's playing chord: in `dim`, split into `beats`, with
+ * beat `beat` in `color`, if it has them.
  * `env`: { xrSupported, passthroughAvailable, checking, views (available) }.
  */
 export function menuItems(state, env) {
-  if (state.page === 'instrument') return [BACK, ...instrumentItems(state)];
-  if (state.page === 'progression') return [BACK, ...progressionItems(state)];
+  // Music: the sound and the board, then the progression; a long page, which both panels scroll
+  if (state.page === 'music') return [BACK, ...instrumentItems(state), ...progressionItems(state)];
   if (state.page === 'video') return [BACK, ...videoItems(state, env)];
   return [
-    { id: `${PAGE_PREFIX}instrument`, label: 'Instrument', icon: 'instrument', submenu: true },
-    { id: `${PAGE_PREFIX}progression`, label: 'Progression', icon: 'progression', submenu: true },
+    { id: `${PAGE_PREFIX}music`, label: 'Music', icon: 'instrument', submenu: true },
     { id: `${PAGE_PREFIX}video`, label: 'Video', icon: 'video', submenu: true },
   ];
 }
@@ -476,7 +484,7 @@ const SAMPLE_STATE = {
   player: STOPPED,
 };
 export const MENU_ROWS =
-  1 + Math.max(instrumentItems(SAMPLE_STATE).length, progressionItems(SAMPLE_STATE).length, videoItems(SAMPLE_STATE, {}).length);
+  1 + Math.max(instrumentItems(SAMPLE_STATE).length + progressionItems(SAMPLE_STATE).length, videoItems(SAMPLE_STATE, {}).length);
 
 /**
  * Every label the buttons can show, on every page, so both panels can size

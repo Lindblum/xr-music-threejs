@@ -269,6 +269,16 @@ function trailingIcon(item) {
 
 const DRAG_START = 6; // px the pointer moves before a press on a queued chord becomes a drag
 
+/** The playing chord's background: its dark colour split into the measure's beats, the current one bright. */
+function beatStyle({ color, dim, beats, beat }) {
+  const from = (beat / beats) * 100;
+  const to = ((beat + 1) / beats) * 100;
+  return {
+    background: `linear-gradient(to right, ${dim} ${from}%, ${color} ${from}%, ${color} ${to}%, ${dim} ${to}%)`,
+    borderColor: color,
+  };
+}
+
 /**
  * Dragging the progression's queued chords in the windowed panel: dropped on
  * another chord it moves there, dropped outside the panel it's removed.
@@ -352,7 +362,7 @@ function MenuButton({ item, onSelect, queue }) {
       aria-expanded={item.dropdown ? item.dropdown.open : undefined}
       aria-current={item.current || undefined}
       data-queue-index={queued ? item.queueIndex : undefined}
-      style={item.current && item.color ? { background: item.color, borderColor: item.color } : undefined}
+      style={item.current && item.color ? beatStyle(item) : undefined}
       onClick={() => (!queued || !queue?.wasDrag()) && onSelect(item.id)}
       {...(queued && queue ? queue.handlers(item) : {})}
     >
@@ -593,7 +603,9 @@ export default function App() {
         actions.closeDropdown();
         selectView(choice);
       } else if (dropdownId === 'stock') {
-        player.stop();
+        // playing, it carries on with the new progression from its start; otherwise it's stopped
+        if (player.playing) player.select(0);
+        else player.stop();
         actions.applyStock(choice, state.key);
       } else actions.pick(dropdownId, choice);
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);

@@ -119,8 +119,8 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn.small .label { gap: 8px; }
 /* the progression's playing chord */
 .menu-btn.current { background: rgba(80, 110, 255, 0.4); border-color: rgba(150, 175, 255, 0.85); }
-/* ...in its root note's colour (bright, so dark text), set on the button */
-.menu-btn.current.coloured { color: #10131c; font-weight: 650; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85); }
+/* ...in its root note's colour, dark with the current beat bright (set on the button), so light text with a shadow */
+.menu-btn.current.coloured { color: #fff; font-weight: 650; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85); }
 /* the queue's chords: dragged to reorder, dragged out or double-clicked to remove */
 .menu-btn.queued { cursor: grab; touch-action: none; user-select: none; }
 .menu-btn.queued.dragging { opacity: 0.35; cursor: grabbing; }

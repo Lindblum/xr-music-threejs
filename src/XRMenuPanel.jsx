@@ -196,16 +196,25 @@ function centredText(ctx, text, x, cy) {
   ctx.fillText(text, x, cy + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
 }
 
-function drawButtonFrame(ctx, r, { hot, disabled, current, color }) {
+function drawButtonFrame(ctx, r, { hot, disabled, current, color, dim, beats, beat }) {
   roundRect(ctx, r.x, r.y, r.w, r.h, 18);
   ctx.fillStyle = disabled
     ? 'rgba(255, 255, 255, 0.04)'
     : current
-      ? (color ?? 'rgba(80, 110, 255, 0.45)')
+      ? (dim ?? color ?? 'rgba(80, 110, 255, 0.45)')
       : hot
         ? 'rgba(255, 255, 255, 0.24)'
         : 'rgba(255, 255, 255, 0.10)';
   ctx.fill();
+  if (current && dim && beats) {
+    // the measure split into its beats, the current one bright
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = color;
+    ctx.fillRect(r.x + (r.w * beat) / beats, r.y, r.w / beats, r.h);
+    ctx.restore();
+    roundRect(ctx, r.x, r.y, r.w, r.h, 18);
+  }
   ctx.strokeStyle = hot || (current && color) ? 'rgba(255, 255, 255, 0.85)' : current ? 'rgba(150, 175, 255, 0.9)' : 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = hot || current ? 4 : 2;
   ctx.stroke();
@@ -256,10 +265,10 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       setScroll((s) => THREE.MathUtils.clamp(Math.min(s, maxScroll) + y * SCROLL_SPEED * Math.min(dt, 0.1), 0, maxScroll));
     }
   });
-  // the tallest page's height (rows of plain buttons): other pages and the collapsed gear keep
-  // to its top edge, and a taller one (a long progression, an open dropdown) grows downward
+  // the tallest page's height (rows of plain buttons, at most the scrolling height): other pages and
+  // the collapsed gear keep to its top edge, and a taller one (a long progression, an open dropdown) grows downward
   const openHeight = useMemo(
-    () => layout(true, Array.from({ length: rows ?? items.length }, (_, i) => ({ id: `row-${i}` })), lines, panelW).height,
+    () => Math.min(layout(true, Array.from({ length: rows ?? items.length }, (_, i) => ({ id: `row-${i}` })), lines, panelW).height, MAX_HEIGHT),
     [rows, items.length, lines, panelW],
   );
   // the tallest page's edges in the group's metres, for docking it against things (see Grab.jsx)
@@ -385,6 +394,9 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         disabled: item.disabled,
         current: item.current,
         color: item.color,
+        dim: item.dim,
+        beats: item.beats,
+        beat: item.beat,
       });
       ctx.globalAlpha = item.disabled ? 0.4 : dragged && !dragging.outside ? 0.35 : 1;
       if (dragged && dragging.outside) {
@@ -402,11 +414,18 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         ctx.setLineDash([]);
       }
       if (item.compact) {
-        // just the label, centred: dark on a coloured (bright) chip
-        ctx.fillStyle = item.current && item.color ? '#10131c' : '#ffffff';
-        ctx.font = item.current && item.color ? `700 30px ${FONT}` : COMPACT_FONT;
+        // just the label, centred; on the playing chord's colours, bold with a shadow
+        const coloured = item.current && item.color;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = coloured ? `700 30px ${FONT}` : COMPACT_FONT;
         ctx.textAlign = 'center';
+        if (coloured) {
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+          ctx.shadowBlur = 6;
+        }
         centredText(ctx, fit(ctx, item.label, r.w - 2 * COMPACT_INSET), r.x + r.w / 2, r.y + r.h / 2);
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
         ctx.textAlign = 'left';
         ctx.globalAlpha = 1;
         continue;

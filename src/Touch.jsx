@@ -13,8 +13,8 @@ import { pickPoints } from './Pick.jsx';
 // a lighter tap and hum, so you can feel where to take hold of it. The whole
 // pick is a mallet too: held or docked, it kicks and hums the hand holding
 // it, and that controller's own tip stops playing; that hand's trigger lets
-// it play any note. A hand bending a note (see Grab.jsx) plays only that
-// note. Each mallet strikes at a velocity (0..1) from its speed, for
+// it play any note. A hand (or the pick) bending notes (see Grab.jsx) plays
+// only those. Each mallet strikes at a velocity (0..1) from its speed, for
 // velocity-sensitive loudness (see Scene.jsx).
 
 const HANDS = ['left', 'right'];
@@ -99,10 +99,10 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
 
     /** One mallet's frame: strike what it touches, and kick or hum `gamepad`. */
     const play = (voice, m, radius, frameToo) => {
-      // a hand bending a note keeps sounding just that one, whatever it slides past
       const touched = () =>
         m.points ? touchedCellsByPoints(fretboard, m.points, radius, m.trigger) : touchedCells(fretboard, m.position, radius, m.trigger);
-      const indices = bendingHands[voice] != null ? [bendingHands[voice]] : m && fretboard ? touched() : [];
+      // a mallet (a hand's tip, or the pick) bending notes keeps sounding just those, whatever it slides past
+      const indices = bendingHands[voice] ?? (m && fretboard ? touched() : []);
       const struck = touch(voice, indices, m?.velocity ?? 1);
       const index = indices.length ? indices[0] : null;
       const wasOnFrame = Boolean(touching[voice]);

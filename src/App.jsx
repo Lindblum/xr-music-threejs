@@ -251,10 +251,10 @@ function MenuButton({ item, onSelect }) {
   );
 }
 
-/** An open dropdown's choices, two to a row beneath its button (or its row). */
+/** An open dropdown's choices, `dropdown.columns` to a row beneath its button (or its row). */
 function MenuOptions({ dropdown, onSelect }) {
   return (
-    <div className="menu-options" role="listbox">
+    <div className="menu-options" role="listbox" style={{ gridTemplateColumns: `repeat(${dropdown.columns ?? 2}, minmax(0, 1fr))` }}>
       {dropdown.options.map((option) => (
         <button
           key={option.id}

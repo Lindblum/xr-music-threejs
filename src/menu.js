@@ -84,12 +84,13 @@ export const PICK_PREFIX = 'pick:';
 
 /**
  * A dropdown: the button shows the current choice, and when it is the open
- * one (`state.dropdown`), lists every choice beneath it, each with
- * `icons[i]` if given. Choosing one sends "pick:<id>:<index>".
+ * one (`state.dropdown`), lists every choice beneath it, `columns` to a row,
+ * each with `icons[i]` if given. Choosing one sends "pick:<id>:<index>".
  */
-function dropdown(state, id, choices, current, icons) {
+function dropdown(state, id, choices, current, icons, columns = 2) {
   return {
     open: state.dropdown === id,
+    columns,
     options: choices.map((label, i) => ({ id: `${PICK_PREFIX}${id}:${i}`, label, icon: icons?.[i], selected: i === current })),
   };
 }
@@ -132,7 +133,7 @@ export function dropdownChoices(env, state) {
   };
 }
 
-/** The Instrument page: the sound (a synth or a sample), its echo, and the board's tuning, key and scale. */
+/** The Instrument page: the sound (a synth or a sample), its echo, and the board's tuning. */
 function instrumentItems(state) {
   return [
     {
@@ -150,20 +151,6 @@ function instrumentItems(state) {
       title: 'Shortcut: T',
       dropdown: dropdown(state, 'tuning', TUNINGS.map((t) => t.name), TUNINGS.indexOf(state.tuning)),
     },
-    {
-      id: 'key',
-      label: `Key: ${NOTE_NAMES[state.key]}`,
-      icon: 'key',
-      title: 'Shortcut: K (Shift+K goes down)',
-      dropdown: dropdown(state, 'key', NOTE_NAMES, state.key),
-    },
-    {
-      id: 'scale',
-      label: `Scale: ${state.scale.name}`,
-      icon: 'scale',
-      title: 'Shortcut: S',
-      dropdown: dropdown(state, 'scale', SCALES.map((sc) => sc.name), SCALES.indexOf(state.scale)),
-    },
   ];
 }
 
@@ -178,7 +165,7 @@ function playLabel(state) {
 export const QUEUE_COLUMNS = 4;
 
 /**
- * The Progression page: the transport and the tempo, then the chord being built (a degree's
+ * The Progression page: the transport and the tempo, the key and scale, then the chord being built (a degree's
  * triad, then on one row its root's alteration, its quality and modifier)
  * and Add Chord, then the queue: the progression's chords, four to a row in a framed
  * group, each with a dropdown to play from it, move it or remove it. The
@@ -195,6 +182,7 @@ function progressionItems(state) {
   const shape = { row: 'shape', cols: 3, small: true };
   const transport = { row: 'transport', cols: 2, small: true };
   const tempo = { row: 'tempo', cols: 2, small: true };
+  const keyScale = { row: 'keyScale', cols: 2, small: true };
   return [
     {
       id: 'play',
@@ -218,6 +206,23 @@ function progressionItems(state) {
       icon: 'beats',
       ...tempo,
       dropdown: dropdown(state, 'beats', BEATS_PER_MEASURE.map(String), BEATS_PER_MEASURE.indexOf(state.beatsPerMeasure)),
+    },
+    // the key and scale the degree triads come from (and the board shows)
+    {
+      id: 'key',
+      label: `Key: ${NOTE_NAMES[state.key]}`,
+      icon: 'key',
+      title: 'Shortcut: K (Shift+K goes down)',
+      ...keyScale,
+      dropdown: dropdown(state, 'key', NOTE_NAMES, state.key, undefined, 4),
+    },
+    {
+      id: 'scale',
+      label: `Scale: ${state.scale.name}`,
+      icon: 'scale',
+      title: 'Shortcut: S',
+      ...keyScale,
+      dropdown: dropdown(state, 'scale', SCALES.map((sc) => sc.name), SCALES.indexOf(state.scale)),
     },
     {
       id: 'degree',

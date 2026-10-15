@@ -155,7 +155,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 /* notes wrap to the buttons' width rather than widening the panel */
 .hud .note { width: 0; min-width: 100%; }
 
-/* a dropdown's choices, two to a row beneath its button */
+/* a dropdown's choices, two to a row (or as many as it asks, see MenuOptions) beneath its button */
 .menu-options {
   display: grid;
   grid-template-columns: 1fr 1fr;

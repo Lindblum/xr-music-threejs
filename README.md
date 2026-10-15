@@ -31,7 +31,7 @@ The Fretboard object holds the note cubes (`Notes`) inside a picture frame (`Fre
 
 ## Controls
 
-The options panel has three submenus, each marked with an arrow. **Instrument** holds Sample, Echo, Tuning, Key and Scale. **Progression** holds the progression's transport and tempo, the chord builder and the chord queue. **Video** holds Background and View Mode. Each submenu starts with a Back button. Sample, Tuning, Key, Scale, Beats per Minute, Beats per Measure, the chord builder's settings, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row, then pick one. Some settings share a row. The Instrument and Progression settings and the progression are saved in a cookie (for this app's folder only) and restored when the page loads. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
+The options panel has three submenus, each marked with an arrow. **Instrument** holds Sample, Echo and Tuning. **Progression** holds the progression's transport and tempo, Key and Scale (side by side), the chord builder and the chord queue. **Video** holds Background and View Mode. Each submenu starts with a Back button. Sample, Tuning, Key, Scale, Beats per Minute, Beats per Measure, the chord builder's settings, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row (Key's twelve notes four to a row), then pick one. Some settings share a row. The Instrument and Progression settings and the progression are saved in a cookie (for this app's folder only) and restored when the page loads. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
 
 | Action | Desktop | XR |
 | --- | --- | --- |
@@ -40,7 +40,8 @@ The options panel has three submenus, each marked with an arrow. **Instrument** 
 | Hands-free panel | — | Look at a panel button for 1 s (a ring fills, then it clicks) |
 | Play any note, in the scale or not | Press the mouse button on it; keep the button down and drag to strum across the board (the view holds still) | Touch it while holding that controller's trigger. A tracked hand can only play notes in the scale |
 | Sample (the sound) | Instrument, `I` (`Shift+I` goes back). The synths come first, then the samples | Instrument |
-| Scale / Key / Tuning | Instrument, `S` / `K` / `T` | Instrument |
+| Key / Scale | Progression, side by side above Degree Triad, `K` / `S` | Progression |
+| Tuning | Instrument, `T` | Instrument |
 | Echo | Instrument, `E` | Instrument |
 | Tempo | Progression: Beats per Minute (40 to 200) and Beats per Measure (2 to 7), side by side below Play and Stop. Each chord in a progression lasts one measure | Progression |
 | Build a progression | Progression. Choose a **Degree Triad** (the triad on each degree of the key's scale, as "ii: Dm" or "vii°: B°"), which sets the chord's root and quality. On one row below: **Alteration** (♭, ♮, ♯) moves its root a semitone; **Quality** is Maj, Min, ° (diminished; with a 7 it's the fully diminished °7), ø (half diminished, ø7), + (augmented), Sus2 or Sus4; **Modifier** adds 7, Δ7 (major 7th), 6 or add9. Then press **Add Chord**, which shows the chord it adds. The queue below, in its own frame, lists the progression four chords to a row; it starts empty | Same |

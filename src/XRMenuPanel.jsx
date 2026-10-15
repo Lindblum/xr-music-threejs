@@ -52,7 +52,7 @@ const TITLE_FONT = `650 46px ${FONT}`;
 const INSET = 18; // icon from the button's left edge, text from its right
 const VALUE_GAP = 40; // at least this between a setting's name and its value
 const TRAILING = 36; // a submenu's arrow or a dropdown's chevron, at the right edge
-// a dropdown's choices: two to a row beneath its button, indented
+// a dropdown's choices: two to a row (or the dropdown's `columns`) beneath its button, indented
 const OPTION_FONT = `400 30px ${FONT}`;
 const OPTION_H = 52;
 const OPTION_GAP = 12;
@@ -128,18 +128,19 @@ function layout(open, items, lines, panelW) {
       y += BUTTON_H + GAP;
       const open = row.find((item) => item.dropdown?.open);
       if (!open) continue;
-      const optionW = (w - OPTION_INDENT - OPTION_GAP) / 2;
+      const columns = open.dropdown.columns ?? 2;
+      const optionW = (w - OPTION_INDENT - (columns - 1) * OPTION_GAP) / columns;
       open.dropdown.options.forEach((option, i) => {
         rects.push({
           id: option.id,
           option,
-          x: x + OPTION_INDENT + (i % 2) * (optionW + OPTION_GAP),
-          y: y + Math.floor(i / 2) * (OPTION_H + OPTION_GAP),
+          x: x + OPTION_INDENT + (i % columns) * (optionW + OPTION_GAP),
+          y: y + Math.floor(i / columns) * (OPTION_H + OPTION_GAP),
           w: optionW,
           h: OPTION_H,
         });
       });
-      y += Math.ceil(open.dropdown.options.length / 2) * (OPTION_H + OPTION_GAP) + GAP - OPTION_GAP;
+      y += Math.ceil(open.dropdown.options.length / columns) * (OPTION_H + OPTION_GAP) + GAP - OPTION_GAP;
     }
     if (block.group) {
       const bottom = y - GAP + GROUP_PAD;

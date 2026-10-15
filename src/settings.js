@@ -4,7 +4,7 @@
 // it falls back to the default.
 
 import { INSTRUMENTS } from './audio.js';
-import { CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
+import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
 import { BEATS_PER_MEASURE, BPMS } from './menu.js';
 
 const COOKIE = 'xr-music-settings';
@@ -21,17 +21,20 @@ export const DEFAULT_SETTINGS = {
   bpm: 100,
   beatsPerMeasure: 4,
   progression: [], // chords: { root, type, modifier }, see music.js
-  draft: { root: 0, type: 'maj', modifier: 'none' }, // the chord Add adds
+  draft: { degree: 0, alteration: 0, type: 'maj', modifier: 'none' }, // the chord Add Chord adds
 };
 
 const cookiePath = () => new URL('.', window.location.href).pathname;
 
 const isRoot = (n) => Number.isInteger(n) && n >= 0 && n < 12;
-const isChord = (c) =>
-  c && isRoot(c.root) && CHORD_TYPES.some((t) => t.id === c.type) && CHORD_MODIFIERS.some((m) => m.id === c.modifier);
-// chords are stored as [root, type, modifier] to keep the cookie small
+const isQuality = (c) => CHORD_TYPES.some((t) => t.id === c.type) && CHORD_MODIFIERS.some((m) => m.id === c.modifier);
+const isChord = (c) => c && isRoot(c.root) && isQuality(c);
+const isDraft = (d) => d && isRoot(d.degree) && ALTERATIONS.some((a) => a.id === d.alteration) && isQuality(d);
+// chords are stored as [root, type, modifier], and the chord being built as [degree, alteration, type, modifier], to keep the cookie small
 const packChord = (c) => [c.root, c.type, c.modifier];
 const unpackChord = (a) => (Array.isArray(a) ? { root: a[0], type: a[1], modifier: a[2] } : null);
+const packDraft = (d) => [d.degree, d.alteration, d.type, d.modifier];
+const unpackDraft = (a) => (Array.isArray(a) ? { degree: a[0], alteration: a[1], type: a[2], modifier: a[3] } : null);
 
 /** The saved settings over the defaults (DEFAULT_SETTINGS if there are none). */
 export function loadSettings() {
@@ -48,7 +51,7 @@ export function loadSettings() {
   if (!saved || saved.v !== VERSION) return DEFAULT_SETTINGS;
   const pick = (ok, value, fallback) => (ok ? value : fallback);
   const d = DEFAULT_SETTINGS;
-  const draft = unpackChord(saved.draft);
+  const draft = unpackDraft(saved.draft);
   return {
     instrument: pick(INSTRUMENTS.includes(saved.instrument), saved.instrument, d.instrument),
     scale: SCALES.find((s) => s.id === saved.scale) ?? d.scale,
@@ -58,7 +61,7 @@ export function loadSettings() {
     bpm: pick(BPMS.includes(saved.bpm), saved.bpm, d.bpm),
     beatsPerMeasure: pick(BEATS_PER_MEASURE.includes(saved.beats), saved.beats, d.beatsPerMeasure),
     progression: Array.isArray(saved.progression) ? saved.progression.map(unpackChord).filter(isChord) : d.progression,
-    draft: isChord(draft) ? draft : d.draft,
+    draft: isDraft(draft) ? draft : d.draft,
   };
 }
 
@@ -74,7 +77,7 @@ export function saveSettings(s) {
     bpm: s.bpm,
     beats: s.beatsPerMeasure,
     progression: s.progression.map(packChord),
-    draft: packChord(s.draft),
+    draft: packDraft(s.draft),
   });
   try {
     document.cookie = `${COOKIE}=${encodeURIComponent(value)}; max-age=${MAX_AGE}; path=${cookiePath()}; SameSite=Lax`;

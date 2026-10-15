@@ -1,10 +1,11 @@
 // Options menu model shared by the windowed panel (DOM) and the XR panel
 // (drawn on a canvas): one list of buttons, each "Name: Value". A button
 // cycles its setting, opens a submenu (an arrow on its right), or opens a
-// dropdown list of choices beneath it (a chevron on its right).
+// dropdown list of choices beneath it (a chevron on its right). Buttons can
+// share a row, and a run of them can sit in a framed group (see menuBlocks).
 
 import { INSTRUMENTS, isSynth } from './audio.js';
-import { CHORD_MODIFIERS, CHORD_TYPES, NOTE_NAMES, SCALES, TUNINGS, chordName, keyChords, sameChord } from './music.js';
+import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, NOTE_NAMES, SCALES, TUNINGS, builtChord, chordName, keyChords } from './music.js';
 
 export const MENU_TITLE = 'XR Music';
 
@@ -108,7 +109,7 @@ const CHORD_ACTION_ICONS = ['play', 'earlier', 'later', 'remove'];
 export const CHORD_PREFIX = 'chord-';
 
 /** The dropdowns' ids (and each chord in the progression's, see CHORD_PREFIX). */
-export const DROPDOWNS = ['instrument', 'scale', 'key', 'tuning', 'bpm', 'beats', 'fromKey', 'root', 'chordType', 'modifier', 'background', 'view'];
+export const DROPDOWNS = ['instrument', 'scale', 'key', 'tuning', 'bpm', 'beats', 'degree', 'alteration', 'quality', 'modifier', 'background', 'view'];
 
 /**
  * The choices behind each dropdown on this device, in list order. App
@@ -122,9 +123,9 @@ export function dropdownChoices(env, state) {
     tuning: TUNINGS,
     bpm: BPMS,
     beats: BEATS_PER_MEASURE,
-    fromKey: keyChords(state.key, state.scale).map((c) => c.chord),
-    root: NOTE_NAMES.map((_, i) => i),
-    chordType: CHORD_TYPES.map((t) => t.id),
+    degree: keyChords(state.key, state.scale),
+    alteration: ALTERATIONS.map((a) => a.id),
+    quality: CHORD_TYPES.map((t) => t.id),
     modifier: CHORD_MODIFIERS.map((m) => m.id),
     background: availableBackgrounds(env),
     view: env.views ?? ['normal'],
@@ -140,12 +141,13 @@ function musicItems(state) {
       title: 'Shortcut: I',
       dropdown: dropdown(state, 'instrument', INSTRUMENTS, INSTRUMENTS.indexOf(state.instrument), INSTRUMENTS.map(instrumentIcon)),
     },
+    { id: 'echo', label: `Echo: ${state.echo ? 'On' : 'Off'}`, icon: state.echo ? 'echo' : 'echoOff', title: 'Shortcut: E' },
     {
-      id: 'scale',
-      label: `Scale: ${state.scale.name}`,
-      icon: 'scale',
-      title: 'Shortcut: S',
-      dropdown: dropdown(state, 'scale', SCALES.map((sc) => sc.name), SCALES.indexOf(state.scale)),
+      id: 'tuning',
+      label: `Tuning: ${state.tuning.name}`,
+      icon: 'tuning',
+      title: 'Shortcut: T',
+      dropdown: dropdown(state, 'tuning', TUNINGS.map((t) => t.name), TUNINGS.indexOf(state.tuning)),
     },
     {
       id: 'key',
@@ -155,16 +157,15 @@ function musicItems(state) {
       dropdown: dropdown(state, 'key', NOTE_NAMES, state.key),
     },
     {
-      id: 'tuning',
-      label: `Tuning: ${state.tuning.name}`,
-      icon: 'tuning',
-      title: 'Shortcut: T',
-      dropdown: dropdown(state, 'tuning', TUNINGS.map((t) => t.name), TUNINGS.indexOf(state.tuning)),
+      id: 'scale',
+      label: `Scale: ${state.scale.name}`,
+      icon: 'scale',
+      title: 'Shortcut: S',
+      dropdown: dropdown(state, 'scale', SCALES.map((sc) => sc.name), SCALES.indexOf(state.scale)),
     },
-    { id: 'echo', label: `Echo: ${state.echo ? 'On' : 'Off'}`, icon: state.echo ? 'echo' : 'echoOff', title: 'Shortcut: E' },
     {
       id: 'bpm',
-      label: `BPM: ${state.bpm}`,
+      label: `Beats per Minute: ${state.bpm}`,
       icon: 'tempo',
       dropdown: dropdown(state, 'bpm', BPMS.map(String), BPMS.indexOf(state.bpm)),
     },
@@ -193,18 +194,24 @@ function playLabel(state) {
   return started && index != null ? `${verb}: ${index + 1}/${state.progression.length} · Beat ${beat + 1}` : verb;
 }
 
+/** Chords in the progression's queue, to a row. */
+export const QUEUE_COLUMNS = 4;
+
 /**
- * The Progression page: the transport, then the chord being built (pick one
- * from the key, or set its root, type and modifier) and Add, then the
- * progression's chords, each with a dropdown to play from it, move it or
- * remove it. The current chord shows a play icon.
+ * The Progression page: the transport, then the chord being built (a degree's
+ * triad, its root flattened or sharpened, its quality and modifier) and Add
+ * Chord, then the queue: the progression's chords, four to a row in a framed
+ * group, each with a dropdown to play from it, move it or remove it. The
+ * playing (or paused) chord is lit.
  */
 function progressionItems(state) {
   const { draft, progression, player } = state;
-  const fromKey = keyChords(state.key, state.scale);
-  const matching = fromKey.findIndex((c) => sameChord(c.chord, draft));
-  const type = CHORD_TYPES.findIndex((t) => t.id === draft.type);
+  const degrees = keyChords(state.key, state.scale);
+  const degree = degrees.findIndex((d) => d.step === draft.degree);
+  const alteration = ALTERATIONS.findIndex((a) => a.id === draft.alteration);
+  const quality = CHORD_TYPES.findIndex((t) => t.id === draft.type);
   const modifier = CHORD_MODIFIERS.findIndex((m) => m.id === draft.modifier);
+  const queue = { group: 'queue', compact: true, cols: QUEUE_COLUMNS };
   return [
     {
       id: 'play',
@@ -215,37 +222,63 @@ function progressionItems(state) {
     },
     { id: 'stop', label: 'Stop', icon: 'stop', disabled: !player.started },
     {
-      id: 'fromKey',
-      label: `From Key: ${matching < 0 ? '—' : fromKey[matching].label}`,
+      id: 'degree',
+      label: `Degree Triad: ${degree < 0 ? '—' : degrees[degree].label}`,
+      icon: 'scale',
+      dropdown: dropdown(state, 'degree', degrees.map((d) => d.label), degree),
+    },
+    {
+      id: 'alteration',
+      label: `Alteration: ${ALTERATIONS[alteration].name}`,
       icon: 'key',
-      dropdown: dropdown(state, 'fromKey', fromKey.map((c) => c.label), matching),
+      dropdown: dropdown(state, 'alteration', ALTERATIONS.map((a) => a.name), alteration),
     },
     {
-      id: 'root',
-      label: `Root: ${NOTE_NAMES[draft.root]}`,
-      icon: 'instrument',
-      dropdown: dropdown(state, 'root', NOTE_NAMES, draft.root),
-    },
-    {
-      id: 'chordType',
-      label: `Type: ${CHORD_TYPES[type].name}`,
+      id: 'quality',
+      label: `Quality: ${CHORD_TYPES[quality].name}`,
       icon: 'chord',
-      dropdown: dropdown(state, 'chordType', CHORD_TYPES.map((t) => t.name), type),
+      row: 'quality',
+      cols: 2,
+      dropdown: dropdown(state, 'quality', CHORD_TYPES.map((t) => t.name), quality),
     },
     {
       id: 'modifier',
       label: `Modifier: ${CHORD_MODIFIERS[modifier].name}`,
       icon: 'modifier',
+      row: 'quality',
+      cols: 2,
       dropdown: dropdown(state, 'modifier', CHORD_MODIFIERS.map((m) => m.name), modifier),
     },
-    { id: 'addChord', label: `Add: ${chordName(draft)}`, icon: 'add' },
-    ...progression.map((chord, i) => ({
-      id: `${CHORD_PREFIX}${i}`,
-      label: `${i + 1}: ${chordName(chord)}`,
-      icon: i === player.index ? 'play' : 'chord',
-      dropdown: dropdown(state, `${CHORD_PREFIX}${i}`, CHORD_ACTION_LABELS, -1, CHORD_ACTION_ICONS),
-    })),
+    { id: 'addChord', label: `Add Chord: ${chordName(builtChord(draft, state.key))}`, icon: 'add' },
+    ...(progression.length
+      ? progression.map((chord, i) => ({
+          ...queue,
+          id: `${CHORD_PREFIX}${i}`,
+          label: chordName(chord),
+          row: `queue-${Math.floor(i / QUEUE_COLUMNS)}`,
+          current: i === player.index,
+          dropdown: dropdown(state, `${CHORD_PREFIX}${i}`, CHORD_ACTION_LABELS, -1, CHORD_ACTION_ICONS),
+        }))
+      : [{ ...queue, id: 'queue-empty', label: 'No chords yet', cols: 1, disabled: true }]),
   ];
+}
+
+/**
+ * The items laid out: blocks of consecutive items in the same group (or in
+ * none), each a list of rows, where consecutive items with the same `row`
+ * share one (in `cols` equal columns). Each block: { group (or null), rows }.
+ */
+export function menuBlocks(items) {
+  const blocks = [];
+  for (const item of items) {
+    const group = item.group ?? null;
+    let block = blocks.at(-1);
+    if (!block || block.group !== group) blocks.push((block = { group, rows: [] }));
+    const row = block.rows.at(-1);
+    if (row && item.row != null && row[0].row === item.row) row.push(item);
+    else block.rows.push([item]);
+  }
+  return blocks;
 }
 
 function videoItems(state, env) {
@@ -318,7 +351,7 @@ const SAMPLE_STATE = {
   bpm: BPMS[0],
   beatsPerMeasure: BEATS_PER_MEASURE[0],
   progression: [],
-  draft: { root: 0, type: 'maj', modifier: 'none' },
+  draft: { degree: 0, alteration: 0, type: 'maj', modifier: 'none' },
   player: STOPPED,
 };
 export const MENU_ROWS =
@@ -326,13 +359,15 @@ export const MENU_ROWS =
 
 /**
  * Every label the buttons can show, on every page, so both panels can size
- * themselves to the widest one and not change width as values change. (The
- * dropdowns' choices sit two to a row in less room, so they don't set it.)
+ * themselves to the widest one and not change width as values change. A
+ * button that shares a row comes as { row: [labels side by side], compact,
+ * group } instead, for the row's width. (The dropdowns' choices sit two to a
+ * row in less room, so they don't set it.)
  */
 export function possibleLabels(env) {
   const labels = new Set();
   const base = { ...SAMPLE_STATE, instrument: INSTRUMENTS[0], echo: false, background: 'solid', view: 'normal' };
-  // the longest chord name in a long progression, at its end
+  // a long chord name, in a long progression, at its end
   const longest = { root: 1, type: 'min', modifier: 'maj7' };
   const variants = [
     ...INSTRUMENTS.map((instrument) => ({ instrument })),
@@ -344,12 +379,19 @@ export function possibleLabels(env) {
     { echo: true },
     ...BPMS.map((bpm) => ({ bpm })),
     ...BEATS_PER_MEASURE.map((beatsPerMeasure) => ({ beatsPerMeasure })),
-    ...NOTE_NAMES.flatMap((_, root) =>
-      CHORD_TYPES.flatMap((t) => CHORD_MODIFIERS.map((m) => ({ draft: { root, type: t.id, modifier: m.id } }))),
+    // every chord Add Chord can show, and every Alteration
+    ...NOTE_NAMES.flatMap((_, key) =>
+      ALTERATIONS.flatMap((a) =>
+        CHORD_TYPES.flatMap((t) =>
+          CHORD_MODIFIERS.map((m) => ({ key, draft: { degree: 0, alteration: a.id, type: t.id, modifier: m.id } })),
+        ),
+      ),
     ),
-    // every key's "From Key" labels
+    // every key's degree triads
     ...SCALES.flatMap((scale) =>
-      NOTE_NAMES.flatMap((_, key) => keyChords(key, scale).map(({ chord }) => ({ scale, key, draft: chord }))),
+      NOTE_NAMES.flatMap((_, key) =>
+        keyChords(key, scale).map(({ step, chord }) => ({ scale, key, draft: { ...base.draft, degree: step, type: chord.type } })),
+      ),
     ),
     {
       progression: Array(12).fill(longest),
@@ -357,7 +399,19 @@ export function possibleLabels(env) {
       player: { playing: true, started: true, index: 11, beat: 6 },
     },
   ];
+  const rows = new Map(); // a row's labels, joined, -> its entry
   for (const page of PAGES)
-    for (const v of variants) for (const item of menuItems({ ...base, ...v, page }, env)) labels.add(item.label);
-  return [...labels];
+    for (const v of variants)
+      for (const block of menuBlocks(menuItems({ ...base, ...v, page }, env)))
+        for (const row of block.rows) {
+          if (row[0].row == null) {
+            labels.add(row[0].label);
+            continue;
+          }
+          // a full row, as wide as it can get: short rows (the queue's last) are measured as if full
+          const cols = row[0].cols ?? row.length;
+          const texts = Array.from({ length: cols }, (_, i) => row[Math.min(i, row.length - 1)].label);
+          rows.set(texts.join('\n'), { row: texts, compact: Boolean(row[0].compact), group: block.group != null });
+        }
+  return [...labels, ...rows.values()];
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { iconSvg } from './Icon.jsx';
-import { splitLabel } from './menu.js';
+import { menuBlocks, splitLabel } from './menu.js';
 import { useGazeTarget } from './Gaze.jsx';
 
 // The options panel in XR. It draws the same menu model as the windowed
@@ -60,6 +60,10 @@ const OPTION_INDENT = 54;
 const CHECK = 30;
 const OPTION_ICON = 32;
 const OPTION_ICON_GAP = 14;
+const COL_GAP = 16; // between buttons sharing a row
+const GROUP_PAD = 16; // inside a group's frame
+const COMPACT_FONT = `500 30px ${FONT}`; // a compact button: just its label, centred
+const COMPACT_INSET = 14;
 
 let measureCtx;
 function textWidth(text, font) {
@@ -68,47 +72,74 @@ function textWidth(text, font) {
   return measureCtx.measureText(text).width;
 }
 
-/** The open panel's width: the widest possible button, or the title row if wider. */
+/** The open panel's width: the widest possible button (or row of them), or the title row if wider. */
 function labelWidth(label) {
   const { name, value } = splitLabel(label);
   return value ? textWidth(`${name}:`, BUTTON_FONT) + VALUE_GAP + textWidth(value, BUTTON_FONT) : textWidth(name, BUTTON_FONT);
 }
 
+const buttonWidth = (label) => INSET + ICON + ICON_GAP + labelWidth(label) + ICON_GAP + TRAILING + INSET;
+const compactWidth = (label) => 2 * COMPACT_INSET + textWidth(label, COMPACT_FONT);
+
+/** A possibleLabels entry's width: a button, or a row of them in equal columns (inside a group's frame, if it's in one). */
+function entryWidth(entry) {
+  if (typeof entry === 'string') return buttonWidth(entry);
+  const widest = Math.max(...entry.row.map(entry.compact ? compactWidth : buttonWidth));
+  return entry.row.length * widest + (entry.row.length - 1) * COL_GAP + (entry.group ? 2 * GROUP_PAD : 0);
+}
+
 function panelWidth(title, labels) {
-  const button = INSET + ICON + ICON_GAP + Math.max(0, ...labels.map(labelWidth)) + ICON_GAP + TRAILING + INSET;
+  const button = Math.max(0, ...labels.map(entryWidth));
   const titleRow = TOGGLE + 24 + textWidth(title, TITLE_FONT);
   return Math.ceil(2 * PAD + Math.max(button, titleRow));
 }
 
 /**
- * Canvas size and the hit rectangles for this state: { id, x, y, w, h } plus
- * `item` for a button or `option` for a choice in an open dropdown.
+ * Canvas size, the hit rectangles for this state ({ id, x, y, w, h } plus
+ * `item` for a button or `option` for a choice in an open dropdown), and the
+ * frames around groups ({ x, y, w, h }). Buttons sharing a row split it into
+ * equal columns; an open dropdown's choices go beneath its row.
  */
 function layout(open, items, lines, panelW) {
-  if (!open) return { width: GEAR, height: GEAR, rects: [{ id: MENU_TOGGLE, x: 0, y: 0, w: GEAR, h: GEAR }] };
+  if (!open) return { width: GEAR, height: GEAR, rects: [{ id: MENU_TOGGLE, x: 0, y: 0, w: GEAR, h: GEAR }], frames: [] };
   const rects = [{ id: MENU_TOGGLE, x: PAD, y: TITLE_Y - TOGGLE / 2, w: TOGGLE, h: TOGGLE }];
-  const w = panelW - 2 * PAD;
+  const frames = [];
+  const fullW = panelW - 2 * PAD;
   let y = TITLE_Y + 34 + lines * LINE_H + 16;
-  for (const item of items) {
-    rects.push({ id: item.id, item, x: PAD, y, w, h: BUTTON_H });
-    y += BUTTON_H + GAP;
-    if (!item.dropdown?.open) continue;
-    const optionW = (w - OPTION_INDENT - OPTION_GAP) / 2;
-    item.dropdown.options.forEach((option, i) => {
-      const row = Math.floor(i / 2);
-      rects.push({
-        id: option.id,
-        option,
-        x: PAD + OPTION_INDENT + (i % 2) * (optionW + OPTION_GAP),
-        y: y + row * (OPTION_H + OPTION_GAP),
-        w: optionW,
-        h: OPTION_H,
+  for (const block of menuBlocks(items)) {
+    const inset = block.group ? GROUP_PAD : 0;
+    const x = PAD + inset;
+    const w = fullW - 2 * inset;
+    const frameTop = y;
+    if (block.group) y += GROUP_PAD;
+    for (const row of block.rows) {
+      const cols = row[0].row == null ? 1 : (row[0].cols ?? row.length);
+      const colW = (w - (cols - 1) * COL_GAP) / cols;
+      row.forEach((item, i) => rects.push({ id: item.id, item, x: x + i * (colW + COL_GAP), y, w: colW, h: BUTTON_H }));
+      y += BUTTON_H + GAP;
+      const open = row.find((item) => item.dropdown?.open);
+      if (!open) continue;
+      const optionW = (w - OPTION_INDENT - OPTION_GAP) / 2;
+      open.dropdown.options.forEach((option, i) => {
+        rects.push({
+          id: option.id,
+          option,
+          x: x + OPTION_INDENT + (i % 2) * (optionW + OPTION_GAP),
+          y: y + Math.floor(i / 2) * (OPTION_H + OPTION_GAP),
+          w: optionW,
+          h: OPTION_H,
+        });
       });
-    });
-    y += Math.ceil(item.dropdown.options.length / 2) * (OPTION_H + OPTION_GAP) + GAP - OPTION_GAP;
+      y += Math.ceil(open.dropdown.options.length / 2) * (OPTION_H + OPTION_GAP) + GAP - OPTION_GAP;
+    }
+    if (block.group) {
+      const bottom = y - GAP + GROUP_PAD;
+      frames.push({ x: PAD, y: frameTop, w: fullW, h: bottom - frameTop });
+      y = bottom + GAP;
+    }
   }
   // `top`: where the scrolling part starts, below the title and status
-  return { width: panelW, height: y - GAP + PAD, rects, top: rects[1]?.y ?? 0 };
+  return { width: panelW, height: y - GAP + PAD, rects, frames, top: rects[1]?.y ?? 0 };
 }
 
 /** What a button's right edge shows: an arrow to a submenu, or a dropdown's chevron. */
@@ -137,12 +168,18 @@ function centredText(ctx, text, x, cy) {
   ctx.fillText(text, x, cy + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
 }
 
-function drawButtonFrame(ctx, r, { hot, disabled }) {
+function drawButtonFrame(ctx, r, { hot, disabled, current }) {
   roundRect(ctx, r.x, r.y, r.w, r.h, 18);
-  ctx.fillStyle = disabled ? 'rgba(255, 255, 255, 0.04)' : hot ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.10)';
+  ctx.fillStyle = disabled
+    ? 'rgba(255, 255, 255, 0.04)'
+    : current
+      ? 'rgba(80, 110, 255, 0.45)'
+      : hot
+        ? 'rgba(255, 255, 255, 0.24)'
+        : 'rgba(255, 255, 255, 0.10)';
   ctx.fill();
-  ctx.strokeStyle = hot ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.16)';
-  ctx.lineWidth = hot ? 4 : 2;
+  ctx.strokeStyle = hot ? 'rgba(255, 255, 255, 0.85)' : current ? 'rgba(150, 175, 255, 0.9)' : 'rgba(255, 255, 255, 0.16)';
+  ctx.lineWidth = hot || current ? 4 : 2;
   ctx.stroke();
 }
 
@@ -153,7 +190,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   const [iconsLoaded, setIconsLoaded] = useState(0);
   const lines = status ? 1 : 0;
   const panelW = useMemo(() => panelWidth(title, labels ?? items.map((i) => i.label)), [title, labels, items]);
-  const { width, height: contentHeight, rects, top } = useMemo(() => layout(open, items, lines, panelW), [open, items, lines, panelW]);
+  const { width, height: contentHeight, rects, frames, top } = useMemo(() => layout(open, items, lines, panelW), [open, items, lines, panelW]);
   // taller than MAX_HEIGHT: the buttons scroll between the title and the bottom edge
   const height = open ? Math.min(contentHeight, MAX_HEIGHT) : contentHeight;
   const maxScroll = contentHeight - height;
@@ -187,9 +224,10 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       setScroll((s) => THREE.MathUtils.clamp(Math.min(s, maxScroll) + y * SCROLL_SPEED * Math.min(dt, 0.1), 0, maxScroll));
     }
   });
-  // the tallest page's height: shorter pages and the collapsed gear keep to its top edge
+  // the tallest page's height (rows of plain buttons): other pages and the collapsed gear keep
+  // to its top edge, and a taller one (a long progression, an open dropdown) grows downward
   const openHeight = useMemo(
-    () => layout(true, Array.from({ length: Math.max(rows ?? 0, items.length) }, () => ({})), lines, panelW).height,
+    () => layout(true, Array.from({ length: rows ?? items.length }, (_, i) => ({ id: `row-${i}` })), lines, panelW).height,
     [rows, items.length, lines, panelW],
   );
   // the tallest page's edges in the group's metres, for docking it against things (see Grab.jsx)
@@ -271,6 +309,15 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     ctx.rect(0, clipTop, width, clipBottom - clipTop);
     ctx.clip();
     ctx.translate(0, -scrolled);
+    // groups' frames, behind their buttons
+    for (const f of frames) {
+      roundRect(ctx, f.x, f.y, f.w, f.h, 28);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
     for (const r of rects) {
       if (r.id === MENU_TOGGLE) continue;
       if (r.option) {
@@ -300,8 +347,18 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         continue;
       }
       const { item } = r;
-      drawButtonFrame(ctx, r, { hot: item.id === hovered && !item.disabled, disabled: item.disabled });
+      drawButtonFrame(ctx, r, { hot: item.id === hovered && !item.disabled, disabled: item.disabled, current: item.current });
       ctx.globalAlpha = item.disabled ? 0.4 : 1;
+      if (item.compact) {
+        // just the label, centred
+        ctx.fillStyle = '#ffffff';
+        ctx.font = COMPACT_FONT;
+        ctx.textAlign = 'center';
+        centredText(ctx, fit(ctx, item.label, r.w - 2 * COMPACT_INSET), r.x + r.w / 2, r.y + r.h / 2);
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+        continue;
+      }
       const img = iconImage(item.icon, redraw);
       if (img.complete && img.naturalWidth) ctx.drawImage(img, r.x + INSET, r.y + (r.h - ICON) / 2, ICON, ICON);
       ctx.fillStyle = '#ffffff';
@@ -342,7 +399,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       ctx.fill();
     }
     texture.needsUpdate = true;
-  }, [canvas, texture, width, height, contentHeight, rects, clipTop, clipBottom, scrolled, maxScroll, open, title, status, hovered, iconsLoaded]);
+  }, [canvas, texture, width, height, contentHeight, rects, frames, clipTop, clipBottom, scrolled, maxScroll, open, title, status, hovered, iconsLoaded]);
 
   const pick = (hit) => {
     if (!hit?.uv) return null;

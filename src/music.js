@@ -72,10 +72,11 @@ export function chordPitchClasses({ root, type, modifier }) {
 const NUMERALS = ['I', 'bII', 'II', 'bIII', 'III', 'IV', '#IV', 'V', 'bVI', 'VI', 'bVII', 'VII'];
 
 /**
- * The chords on each degree of the key's scale: the first type whose notes
+ * The triad on each degree of the key's scale: the first type whose notes
  * all lie in the scale (major or minor, else a sus chord), named by its
- * roman numeral, lower case for minor. Degrees with none (a major scale's
- * diminished vii) are left out. Each: { chord, label }.
+ * roman numeral, lower case for minor: "ii: Dm". Degrees with none (a major
+ * scale's diminished vii) are left out. Each: { step (semitones above the
+ * key), chord, label }.
  */
 export function keyChords(key, scale) {
   return scale.steps.flatMap((step) => {
@@ -83,11 +84,27 @@ export function keyChords(key, scale) {
     if (!type) return [];
     const chord = { root: mod12(key + step), type: type.id, modifier: 'none' };
     const numeral = type.id === 'min' ? NUMERALS[step].toLowerCase() : NUMERALS[step];
-    return [{ chord, label: `${numeral} ${chordName(chord)}` }];
+    return [{ step, chord, label: `${numeral}: ${chordName(chord)}` }];
   });
 }
 
-export const sameChord = (a, b) => a.root === b.root && a.type === b.type && a.modifier === b.modifier;
+/** Alterations of a degree's root: semitones, and names. */
+export const ALTERATIONS = [
+  { id: -1, name: 'Flat' },
+  { id: 0, name: 'Natural' },
+  { id: 1, name: 'Sharp' },
+];
+
+/**
+ * The chord being built ({ degree: semitones above the key, alteration: -1,
+ * 0 or 1, type, modifier }) in `key`: its root is the degree's, flattened or
+ * sharpened.
+ */
+export const builtChord = ({ degree, alteration, type, modifier }, key) => ({
+  root: mod12(key + degree + alteration),
+  type,
+  modifier,
+});
 
 /**
  * The note's colour around the colour wheel, as the old page drew it:

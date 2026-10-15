@@ -9,7 +9,7 @@ import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { buildCells } from './Fretboard.jsx';
 import { INSTRUMENTS, loadInstrument, setEcho, unlockAudio } from './audio.js';
-import { SCALES, TUNINGS, chordPitchClasses } from './music.js';
+import { SCALES, TUNINGS, builtChord, chordPitchClasses } from './music.js';
 import { useProgression } from './progression.js';
 import { loadSettings, saveSettings } from './settings.js';
 import {
@@ -25,6 +25,7 @@ import {
   menuItems,
   menuTitle,
   dropdownChoices,
+  menuBlocks,
   possibleLabels,
   splitLabel,
 } from './menu.js';
@@ -91,7 +92,7 @@ function useMusicState() {
   const [bpm, setBpm] = useState(saved.bpm);
   const [beatsPerMeasure, setBeatsPerMeasure] = useState(saved.beatsPerMeasure);
   const [progression, setProgression] = useState(saved.progression); // chords: { root, type, modifier }, see music.js
-  const [draft, setDraft] = useState(saved.draft); // the chord Add adds
+  const [draft, setDraft] = useState(saved.draft); // the chord Add Chord adds: { degree, alteration, type, modifier }, see music.js
   useEffect(
     () => saveSettings({ instrument, scale, key, tuning, echo, bpm, beatsPerMeasure, progression, draft }),
     [instrument, scale, key, tuning, echo, bpm, beatsPerMeasure, progression, draft],
@@ -120,9 +121,10 @@ function useMusicState() {
           tuning: setTuning,
           bpm: setBpm,
           beats: setBeatsPerMeasure,
-          fromKey: setDraft,
-          root: (root) => setDraft((d) => ({ ...d, root })),
-          chordType: (type) => setDraft((d) => ({ ...d, type })),
+          // a degree's triad: its root unaltered, its quality the triad's
+          degree: ({ step, chord }) => setDraft((d) => ({ ...d, degree: step, alteration: 0, type: chord.type })),
+          alteration: (alteration) => setDraft((d) => ({ ...d, alteration })),
+          quality: (type) => setDraft((d) => ({ ...d, type })),
           modifier: (modifier) => setDraft((d) => ({ ...d, modifier })),
           background: setBackground,
         })[id](choice);
@@ -230,53 +232,112 @@ function trailingIcon(item) {
   return null;
 }
 
+function MenuButton({ item, onSelect }) {
+  const trailing = !item.compact && trailingIcon(item);
+  const className = `menu-btn${item.compact ? ' compact' : ''}${item.current ? ' current' : ''}`;
+  return (
+    <button
+      className={className}
+      disabled={item.disabled}
+      title={item.title}
+      aria-expanded={item.dropdown ? item.dropdown.open : undefined}
+      aria-current={item.current || undefined}
+      onClick={() => onSelect(item.id)}
+    >
+      {!item.compact && <Icon name={item.icon} />}
+      {item.compact ? <span className="option-label">{item.label}</span> : <Label text={item.label} />}
+      {trailing && <Icon name={trailing} />}
+    </button>
+  );
+}
+
+/** An open dropdown's choices, two to a row beneath its button (or its row). */
+function MenuOptions({ dropdown, onSelect }) {
+  return (
+    <div className="menu-options" role="listbox">
+      {dropdown.options.map((option) => (
+        <button
+          key={option.id}
+          className={`menu-option${option.selected ? ' selected' : ''}`}
+          role="option"
+          aria-selected={option.selected}
+          onClick={() => onSelect(option.id)}
+        >
+          {option.icon && <Icon name={option.icon} />}
+          <span className="option-label">{option.label}</span>
+          {option.selected && <Icon name="check" />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** One row of buttons: a single button, or several in equal columns (see menuBlocks). */
+function MenuRow({ row, onSelect }) {
+  const open = row.find((item) => item.dropdown?.open);
+  const buttons = row.map((item) => <MenuButton key={item.id} item={item} onSelect={onSelect} />);
+  return (
+    <>
+      {row[0].row == null ? (
+        buttons
+      ) : (
+        <div className="menu-row" style={{ gridTemplateColumns: `repeat(${row[0].cols ?? row.length}, minmax(0, 1fr))` }}>
+          {buttons}
+        </div>
+      )}
+      {open && <MenuOptions dropdown={open.dropdown} onSelect={onSelect} />}
+    </>
+  );
+}
+
+/** A label's stand-in in the sizer: as wide as its button would be. */
+function SizerButton({ text, compact }) {
+  return compact ? (
+    <div className="menu-btn compact">
+      <span className="option-label">{text}</span>
+    </div>
+  ) : (
+    <div className="menu-btn">
+      <Icon name="instrument" />
+      <Label text={text} />
+      <Icon name="dropdown" />
+    </div>
+  );
+}
+
 function MenuButtons({ items, labels, onSelect }) {
   return (
     <div className="menu-items">
-      {items.map((item) => {
-        const trailing = trailingIcon(item);
-        return (
-          <Fragment key={item.id}>
-            <button
-              className="menu-btn"
-              disabled={item.disabled}
-              title={item.title}
-              aria-expanded={item.dropdown ? item.dropdown.open : undefined}
-              onClick={() => onSelect(item.id)}
-            >
-              <Icon name={item.icon} />
-              <Label text={item.label} />
-              {trailing && <Icon name={trailing} />}
-            </button>
-            {item.dropdown?.open && (
-              <div className="menu-options" role="listbox">
-                {item.dropdown.options.map((option) => (
-                  <button
-                    key={option.id}
-                    className={`menu-option${option.selected ? ' selected' : ''}`}
-                    role="option"
-                    aria-selected={option.selected}
-                    onClick={() => onSelect(option.id)}
-                  >
-                    {option.icon && <Icon name={option.icon} />}
-                    <span className="option-label">{option.label}</span>
-                    {option.selected && <Icon name="check" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </Fragment>
+      {menuBlocks(items).map((block, b) => {
+        const rows = block.rows.map((row) => <MenuRow key={row[0].id} row={row} onSelect={onSelect} />);
+        return block.group ? (
+          <div key={`group-${block.group}`} className="menu-group">
+            {rows}
+          </div>
+        ) : (
+          <Fragment key={`block-${b}`}>{rows}</Fragment>
         );
       })}
-      {/* invisible, zero-height copies of every possible label: they set the panel's width */}
+      {/* invisible, zero-height copies of every possible label (and row of them): they set the panel's width */}
       <div className="menu-sizer" aria-hidden="true">
-        {labels.map((label) => (
-          <div key={label} className="menu-btn">
-            <Icon name="instrument" />
-            <Label text={label} />
-            <Icon name="dropdown" />
-          </div>
-        ))}
+        {labels.map((entry) => {
+          if (typeof entry === 'string') return <SizerButton key={entry} text={entry} />;
+          const row = (
+            <div className="menu-row sizer-row">
+              {entry.row.map((text, i) => (
+                <SizerButton key={i} text={text} compact={entry.compact} />
+              ))}
+            </div>
+          );
+          const key = entry.row.join('\n');
+          return entry.group ? (
+            <div key={key} className="menu-group">
+              {row}
+            </div>
+          ) : (
+            <Fragment key={key}>{row}</Fragment>
+          );
+        })}
       </div>
     </div>
   );
@@ -410,7 +471,7 @@ export default function App() {
     else if (id === 'echo') actions.toggleEcho();
     else if (id === 'play') player.toggle();
     else if (id === 'stop') player.stop();
-    else if (id === 'addChord') actions.addChord(state.draft);
+    else if (id === 'addChord') actions.addChord(builtChord(state.draft, state.key));
   };
   /** A choice from a progression chord's dropdown (see CHORD_ACTIONS). */
   const chordAction = (index, action) => {

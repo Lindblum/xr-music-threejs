@@ -31,7 +31,7 @@ The Fretboard object holds the note cubes (`Notes`) inside a picture frame (`Fre
 
 ## Controls
 
-The options panel has two submenus, each marked with an arrow. **Music** holds Instrument, Scale, Key, Tuning, Echo, BPM, Beats per Measure and **Progression**, a submenu of its own. **Video** holds Background and View Mode. Each submenu starts with a Back button. Instrument, Scale, Key, Tuning, BPM, Beats per Measure, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row, then pick one. The Music settings and the progression are saved in a cookie (for this app's folder only) and restored when the page loads. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
+The options panel has two submenus, each marked with an arrow. **Music** holds Instrument, Echo, Tuning, Key, Scale, Beats per Minute, Beats per Measure and **Progression**, a submenu of its own. **Video** holds Background and View Mode. Each submenu starts with a Back button. Instrument, Tuning, Key, Scale, Beats per Minute, Beats per Measure, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row, then pick one. The Music settings and the progression are saved in a cookie (for this app's folder only) and restored when the page loads. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
 
 | Action | Desktop | XR |
 | --- | --- | --- |
@@ -42,10 +42,10 @@ The options panel has two submenus, each marked with an arrow. **Music** holds I
 | Instrument | Music, `I` (`Shift+I` goes back) | Music |
 | Scale / Key / Tuning | Music, `S` / `K` / `T` | Music |
 | Echo | Music, `E` | Music |
-| Tempo | Music: BPM (40 to 200) and Beats per Measure (2 to 7). Each chord in a progression lasts one measure | Music |
-| Build a progression | Music → Progression. Set the chord to add with **From Key** (the chords on the key's scale degrees, by roman numeral), or with **Root**, **Type** (Maj, Min, Sus2, Sus4) and **Modifier** (None, Dom7, Maj7, 6, Add9), then press **Add**. The progression starts empty; its chords are listed below Add | Same |
-| Edit a progression | Press a chord in the list for **Play From Here**, **Move Earlier**, **Move Later** or **Remove** | Same |
-| Play / pause / stop a progression | Progression: **Play** / **Pause** (shows the chord and beat), `P`; **Stop** returns to the start and raises the key's triad again. It loops, and the playing chord is marked in the list | Same |
+| Tempo | Music: Beats per Minute (40 to 200) and Beats per Measure (2 to 7). Each chord in a progression lasts one measure | Music |
+| Build a progression | Music → Progression. Choose a **Degree Triad** (the triad on each degree of the key's scale, as "ii: Dm"), which sets the chord's root and quality; an **Alteration** (Flat, Natural, Sharp) moves its root a semitone; **Quality** (Maj, Min, Sus2, Sus4) and **Modifier** (None, Dom7, Maj7, 6, Add9) share a row. Then press **Add Chord**, which shows the chord it adds. The queue below, in its own frame, lists the progression four chords to a row; it starts empty | Same |
+| Edit a progression | Press a chord in the queue for **Play From Here**, **Move Earlier**, **Move Later** or **Remove** | Same |
+| Play / pause / stop a progression | Progression: **Play** / **Pause** (shows the chord and beat), `P`; **Stop** returns to the start and raises the key's triad again. It loops, and the playing chord is lit in the queue | Same |
 | The pick | — | XR: Headset only. A 10 cm guitar pick, a rounded triangle with all three corners equally rounded, starts docked on the right controller, lying flat and pointing forward from it. Take it off with the other controller: put that tip on it and hold the grip (it clicks). Carry it with one grip, or scale and turn it with both, as with the Fretboard; let go within reach of a controller to dock it there (a click and a buzz on that controller). All of it plays notes, not just the tip: the hand holding it, or the controller it's docked on, feels the kicks and hums, and that hand's trigger lets it play notes outside the scale. Meanwhile that controller's own tip doesn't play. It glows while touched and held. With hand tracking only, it waits in front of you, below the board |
 | Show / hide the panel | Gear button, `Enter`, `Esc` | Gear on the panel |
 | Leave XR | Choose a windowed View Mode | The left controller's menu button (Quest 3 controllers) returns to Normal |

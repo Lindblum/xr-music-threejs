@@ -1,7 +1,9 @@
 // The sound engine: instrument samples played back at any note by changing
 // their playback rate, or synths (an oscillator: sine, triangle, sawtooth or
-// square) that sound for as long as a note is held. Each "voice" is one thing touching the board (the mouse, a
-// controller, a hand), so two hands can sound two notes at once.
+// square) that sound for as long as a note is held. Each "voice" is one note
+// being touched by one thing (the mouse, a controller, a hand, the pick), so
+// any number of notes can sound at once. A voice can be bent: its pitch
+// raised or lowered by semitones while it sounds.
 
 import { detectPitch } from './pitch.js';
 import { frequencyToNote, noteToFrequency } from './music.js';
@@ -45,9 +47,13 @@ const ECHO_FEEDBACK = 0.4;
 let ctx = null;
 let master;
 let echoSend;
+const SYNTH_RELEASE = 0.03; // seconds: a released synth fades with this time constant...
+const SYNTH_STOP = 0.3; // ...and its oscillator stops this long after
 const samples = new Map(); // name -> Promise<{ buffer, note, gain }>
 const sources = [];
-const synths = new Map(); // voice -> { osc, gain }
+const synths = new Map(); // voice -> { osc, gain }, while held
+const ringing = new Map(); // voice -> { source, rate } for its latest sample, while it rings
+const bends = new Map(); // voice -> semitones it is bent by
 
 function context() {
   if (ctx) return ctx;
@@ -108,11 +114,15 @@ export function loadInstrument(name) {
   return samples.get(name);
 }
 
-function playSample(sample, note) {
+const bendRatio = (voice) => 2 ** ((bends.get(voice) ?? 0) / 12);
+
+function playSample(voice, sample, note) {
   const c = context();
   const source = c.createBufferSource();
   source.buffer = sample.buffer;
-  source.playbackRate.value = 2 ** ((note - (sample.note ?? 0)) / 12);
+  const rate = 2 ** ((note - (sample.note ?? 0)) / 12);
+  source.playbackRate.value = rate * bendRatio(voice);
+  ringing.set(voice, { source, rate });
   const gain = c.createGain();
   gain.gain.value = sample.gain;
   source.connect(gain);
@@ -121,6 +131,7 @@ function playSample(sample, note) {
   source.onended = () => {
     const i = sources.indexOf(source);
     if (i >= 0) sources.splice(i, 1);
+    if (ringing.get(voice)?.source === source) ringing.delete(voice);
     gain.disconnect();
   };
   source.start();
@@ -128,6 +139,7 @@ function playSample(sample, note) {
   if (sources.length > MAX_SOURCES) sources.shift().stop();
 }
 
+/** The voice's oscillator, started silent if it has none (one released has gone: see noteOff). */
 function synthVoice(voice) {
   let v = synths.get(voice);
   if (!v) {
@@ -156,17 +168,38 @@ export function noteOn(voice, note, instrument) {
     const { osc, gain } = synthVoice(voice);
     osc.type = type;
     osc.frequency.setTargetAtTime(noteToFrequency(note), c.currentTime, 0.005);
+    osc.detune.setValueAtTime((bends.get(voice) ?? 0) * 100, c.currentTime);
     gain.gain.setTargetAtTime(level, c.currentTime, 0.01);
     return;
   }
   const sample = samples.get(instrument);
-  sample?.then((s) => playSample(s, note)).catch(() => {});
+  sample?.then((s) => playSample(voice, s, note)).catch(() => {});
 }
 
-/** `voice` left the board. */
+/** `voice` let go: a synth fades out and its oscillator stops; a sample rings on. */
 export function noteOff(voice) {
   const v = synths.get(voice);
-  if (v) v.gain.gain.setTargetAtTime(0, context().currentTime, 0.03);
+  if (!v) return;
+  synths.delete(voice);
+  const t = context().currentTime;
+  v.gain.gain.setTargetAtTime(0, t, SYNTH_RELEASE);
+  v.osc.stop(t + SYNTH_STOP);
+  v.osc.onended = () => v.gain.disconnect();
+}
+
+/**
+ * Bends `voice` by `semitones` (fractional; 0 is unbent): a ringing sample
+ * plays faster or slower, a held synth's pitch shifts. It stays bent for the
+ * voice's next note too, until bent back.
+ */
+export function setBend(voice, semitones) {
+  if (semitones) bends.set(voice, semitones);
+  else bends.delete(voice);
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const sample = ringing.get(voice);
+  sample?.source.playbackRate.setTargetAtTime(sample.rate * bendRatio(voice), t, 0.01);
+  synths.get(voice)?.osc.detune.setTargetAtTime(semitones * 100, t, 0.01);
 }
 
 let noise = null;
@@ -220,7 +253,8 @@ export function playClick(kind) {
   }
 }
 
-/** Silences every held oscillator, e.g. when switching instrument. */
+/** Silences every held oscillator and forgets every bend, e.g. when switching instrument. */
 export function allNotesOff() {
-  for (const voice of synths.keys()) noteOff(voice);
+  for (const voice of [...synths.keys()]) noteOff(voice);
+  bends.clear();
 }

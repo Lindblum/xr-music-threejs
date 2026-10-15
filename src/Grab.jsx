@@ -2,8 +2,8 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { applyTwoHands, readControllers } from './grip.js';
-import { frameSize, nearFrame, touchesFrame } from './Fretboard.jsx';
-import { TIP_FORWARD, pulse } from './Touch.jsx';
+import { SPACING, frameSize, nearFrame, touchedCells, touchesFrame } from './Fretboard.jsx';
+import { RADIUS, TIP_FORWARD, pulse } from './Touch.jsx';
 import { touchesPick } from './Pick.jsx';
 import { playClick } from './audio.js';
 
@@ -19,11 +19,17 @@ import { playClick } from './audio.js';
 // Fretboard's frame, takes hold of it: with one hand it follows that hand
 // rigidly, moving and turning with it; with both hands on it (as in Tilt
 // Brush) it scales with the distance between them and turns with the line
-// between them. A grip pressed anywhere else does nothing until it is let go.
+// between them. A grip pressed with the tip on a note bends it: the note
+// slides along the frets with the hand, a semitone per fret's width, until
+// the grip lets go (see Fretboard.jsx), ticking at each semitone. A grip
+// pressed anywhere else does nothing until it is let go.
 
 const HANDS = ['left', 'right'];
 const GRAB_RADIUS = 0.04; // a little more forgiving than the mallet
 const CARRIED = ['board', 'pick']; // what grips move, turn and scale
+const BEND_MAX = 3; // frets (semitones) a note bends either way
+const BEND_PULSE = [0.5, 30]; // on taking hold of a note
+const BEND_TICK = [0.3, 15]; // at each whole semitone of bend
 const PANEL_REACH = 0.05; // a controller this close to the panel's face takes it, as well as one pointing at it
 const GRAB_PULSE = [0.6, 50]; // haptic [strength, ms] on taking hold of the frame
 const DETACH_PULSE = [0.4, 30]; // on taking the panel off a dock
@@ -178,6 +184,8 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
       for (const target of CARRIED) carried.current[target] = { oneHand: null, last: {} };
       handles.current.holding = {};
       handles.current.pick = { touching: {}, holding: {} };
+      handles.current.bending = {};
+      handles.current.bendingHands = {};
       return;
     }
     const controllers = readControllers(frame, referenceSpace, origin.current);
@@ -187,6 +195,8 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
     const dock = menuDock.current;
     const holding = { board: {}, pick: {} }; // target -> hand -> controller, for the hands carrying it
     const pickTouching = {};
+    const bending = {}; // cell index -> how far it's pulled along the frets, in board metres
+    const bendingHands = {}; // hand -> the cell it's bending
 
     /** Where the held panel would dock if let go now: the other hand, 'frame' or null. */
     const dockZone = (hand) => {
@@ -252,6 +262,11 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
             grow: FREE_SCALE / _scale.setFromMatrixScale(panel.matrixWorld).x,
             zone: null,
           };
+        } else if (fretboard && touchedCells(fretboard, _tip, RADIUS, c.trigger).length) {
+          // the note the tip is on (the nearest, if it's between two): bent from where the hand is now
+          const [index] = touchedCells(fretboard, _tip, RADIUS, c.trigger);
+          grab = { target: 'note', index, from: fretboard.worldToLocal(_tip.clone()).x, step: 0 };
+          pulse(c.gamepad, BEND_PULSE);
         } else if (fretboard && touchesFrame(fretboard, strings, _tip, GRAB_RADIUS)) {
           grab = { target: 'board' };
           pulse(c.gamepad, GRAB_PULSE);
@@ -261,6 +276,17 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
         grabs.current[hand] = grab;
       }
       if (CARRIED.includes(grab.target)) holding[grab.target][hand] = c;
+      else if (grab.target === 'note' && fretboard) {
+        // how far the hand has moved along the frets since it took hold, as far as BEND_MAX either way
+        _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
+        const along = fretboard.worldToLocal(_tip).x - grab.from;
+        const pulled = THREE.MathUtils.clamp(along, -BEND_MAX * SPACING, BEND_MAX * SPACING);
+        bending[grab.index] = pulled;
+        bendingHands[hand] = grab.index;
+        const step = Math.trunc(pulled / SPACING);
+        if (step !== grab.step) pulse(c.gamepad, BEND_TICK);
+        grab.step = step;
+      }
       else if (grab.target === 'menu' && panel) {
         // keeps its pose in the hand, easing to full size about the point it was taken by
         grab.size += (grab.grow - grab.size) * (1 - Math.exp(-GROW_RATE * Math.min(dt, 0.1)));
@@ -277,6 +303,8 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
     const flags = (hands) => ({ left: Boolean(hands.left), right: Boolean(hands.right) });
     handles.current.holding = flags(holding.board);
     handles.current.pick = { touching: flags(pickTouching), holding: flags(holding.pick) };
+    handles.current.bending = bending;
+    handles.current.bendingHands = bendingHands;
     carryByHands(fretboard, holding.board, carried.current.board);
     carryByHands(thePick, holding.pick, carried.current.pick);
 

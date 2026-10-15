@@ -11,7 +11,10 @@ import { isInSteps, mod12, noteCss, noteName, noteRgb } from './music.js';
 // key's triad), gliding there when it changes. Notes outside the scale (and
 // the chord) don't sound at a touch: the mouse has to
 // press them (or drag over them with the button down), and a controller has
-// to hold its trigger. The frame is the handle that moves, turns and scales the whole
+// to hold its trigger. A note can be bent: taken by a grip (see Grab.jsx) and
+// pulled along the frets, a fret's width for each semitone, it slides with
+// the hand and its pitch follows; let go, it springs back home and its pitch
+// with it. The frame is the handle that moves, turns and scales the whole
 // Fretboard (see Grab.jsx). Fretboard space has its origin at the centre of
 // the notes, x along the frets, y up the strings, z toward the player.
 
@@ -24,6 +27,7 @@ const TOUCH_EMISSIVE = new THREE.Color(0, 0, 1); // the old page's blue glow
 const NO_EMISSIVE = new THREE.Color(0, 0, 0);
 const JITTER = 0.1; // touched cubes shiver up to this much larger
 const RAISE_RATE = 10; // per second: how quickly cubes glide to a new chord's heights
+const RETURN_RATE = 14; // per second: how quickly a let-go bent note springs home
 
 /** How far a cube stands out: the chord's notes furthest, then the scale's. */
 const raise = (inChord, inScale) => (inChord ? CHORD_RAISE : inScale ? SCALE_RAISE : 0);
@@ -46,6 +50,12 @@ export function buildCells(tuning, key, scale) {
     }
   });
   return cells;
+}
+
+/** The note the mouse is sounding, or null. */
+function mouseNote(touches) {
+  for (const [voice, index] of touches.current) if (voice.startsWith('mouse:')) return index;
+  return null;
 }
 
 /** The note name on the cube colour, for the front face. Shared by cubes with the same look. */
@@ -89,15 +99,22 @@ const geometry = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
  * The Fretboard object: its notes and frame, in `boardRef`.
  * `touches` is a Map of voice -> cell index, written by whatever is touching
  * the notes; touched cubes glow and shiver. `handles` is the frame's
- * { touching, holding } (hand -> true), which light it up.
+ * { touching, holding } (hand -> true), which light it up, and
+ * `handles.current.bending` the notes being bent (cell index -> how far
+ * along the frets, in board metres). `onBend(index, semitones)` reports a
+ * bent note's pitch as its cube moves.
  * `chord`: the current chord's pitch classes (a Set), or null for the key's
  * triad. `onHover(index | null)` reports the mouse: hovering sounds notes in
  * the scale or chord, and with the button down, any note. Each cube's mesh
  * carries `userData.playable`, whether a touch sounds it.
  */
-export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, position }) {
+export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, onBend, position }) {
   const strings = cells.length / FRETS;
   const meshes = useRef([]);
+  const bent = useRef([]); // each cell's bend last reported, in semitones
+  useEffect(() => {
+    bent.current = [];
+  }, [cells]);
   const materials = useMemo(() => cells.map(cubeMaterials), [cells]);
   const inChord = useMemo(() => cells.map((cell) => (chord ? chord.has(mod12(cell.note)) : cell.inChord)), [cells, chord]);
   const playable = useMemo(() => cells.map((cell, i) => cell.inScale || inChord[i]), [cells, inChord]);
@@ -115,7 +132,7 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
       if (!strumming.current) return;
       strumming.current = false;
       if (controls) controls.enabled = true;
-      const index = touches.current.get('mouse');
+      const index = mouseNote(touches);
       if (index != null && !playable[index]) onHover(null);
     };
     window.addEventListener('pointerup', onUp);
@@ -138,9 +155,24 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
   useFrame((_, dt) => {
     const touched = new Set(touches.current.values());
     const glide = 1 - Math.exp(-RAISE_RATE * Math.min(dt, 0.1));
+    const bending = handles.current.bending ?? {};
+    const spring = 1 - Math.exp(-RETURN_RATE * Math.min(dt, 0.1));
     meshes.current.forEach((mesh, i) => {
       if (!mesh) return;
       mesh.position.z += (raise(inChord[i], cells[i].inScale) - mesh.position.z) * glide;
+      // a bent note slides with the hand, then springs home; its pitch follows where it is
+      const home = cells[i].position[0];
+      if (bending[i] != null) mesh.position.x = home + bending[i];
+      else mesh.position.x += (home - mesh.position.x) * spring;
+      let semitones = (mesh.position.x - home) / SPACING;
+      if (Math.abs(semitones) < 0.005) {
+        mesh.position.x = home;
+        semitones = 0;
+      }
+      if (semitones !== (bent.current[i] ?? 0)) {
+        bent.current[i] = semitones;
+        onBend?.(i, semitones);
+      }
       mesh.userData.playable = playable[i];
       const on = touched.has(i);
       const [side, , , , front] = materials[i];
@@ -167,7 +199,7 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
               e.stopPropagation();
               if (playable[i] || strumming.current) onHover(i);
             }}
-            onPointerOut={() => hoverEnabled && touches.current.get('mouse') === i && onHover(null)}
+            onPointerOut={() => hoverEnabled && mouseNote(touches) === i && onHover(null)}
             onPointerDown={(e) => {
               if (!hoverEnabled) return;
               e.stopPropagation();
@@ -269,19 +301,18 @@ export function nearFrame(board, strings, world, reach) {
 }
 
 /**
- * The cell a sphere at `world` (radius in metres) touches, the nearest if
- * several, or null. Cubes are boxes around their centres, in board space,
- * where they stand now. `outOfScale`: whether notes that aren't playable
- * (outside the scale and chord) count.
+ * Every cell a sphere at `world` (radius in metres) touches, nearest first.
+ * Cubes are boxes around their centres, in board space, where they stand
+ * now. `outOfScale`: whether notes that aren't playable (outside the scale
+ * and chord) count.
  */
-export function touchedCell(board, world, radius, outOfScale) {
+export function touchedCells(board, world, radius, outOfScale) {
   const notes = board.getObjectByName('Notes');
-  if (!notes) return null;
+  if (!notes) return [];
   board.worldToLocal(_local.copy(world));
   const r = radius / board.scale.x;
   const half = CUBE / 2;
-  let best = null;
-  let bestDist = Infinity;
+  const hits = [];
   notes.children.forEach((mesh, i) => {
     if (!mesh.userData.playable && !outOfScale) return;
     const { x, y, z } = mesh.position;
@@ -290,11 +321,7 @@ export function touchedCell(board, world, radius, outOfScale) {
     const dy = Math.max(Math.abs(_local.y - y) - half, 0);
     const dz = Math.max(Math.abs(_local.z - z) - half, 0);
     if (dx * dx + dy * dy + dz * dz > r * r) return;
-    const d = (_local.x - x) ** 2 + (_local.y - y) ** 2 + (_local.z - z) ** 2;
-    if (d < bestDist) {
-      bestDist = d;
-      best = i;
-    }
+    hits.push({ i, d: (_local.x - x) ** 2 + (_local.y - y) ** 2 + (_local.z - z) ** 2 });
   });
-  return best;
+  return hits.sort((a, b) => a.d - b.d).map((hit) => hit.i);
 }

@@ -14,7 +14,7 @@ import { CameraBackground, CardboardRig } from './Cardboard.jsx';
 import { GazeReticle } from './Gaze.jsx';
 import { PhoneStereoCameraFeed, PhoneStereoXR } from './PhoneStereo.jsx';
 import { SOLID_BACKGROUND } from './menu.js';
-import { allNotesOff, noteOff, noteOn } from './audio.js';
+import { allNotesOff, noteOff, noteOn, setBend } from './audio.js';
 
 // The Fretboard's centre: a metre above the floor and half a metre in front
 // of the player, as in the old page.
@@ -170,36 +170,58 @@ function Player({ origin, board, pick, menu, menuDock, strings, handles, childre
 }
 
 /**
- * Who is touching which cube: voice ('mouse', 'left', 'right') -> cell index.
- * `press` moves a voice onto a cube (or off the board) and sounds the note.
- * Returns the map and `press`, which reports whether a new note was struck.
+ * Which cubes are being touched, and by what: voice -> cell index, where a
+ * voice is one source ('mouse', 'left', 'right', 'pick', 'gaze') on one cube
+ * ('left:12'), so a source can sound several notes at once. `touch(source,
+ * indices)` moves a source onto those cubes, sounding the new ones and
+ * releasing the rest, and reports whether a new note was struck; `press(source,
+ * index | null)` does it for one cube or none. `bend(index, semitones)` bends
+ * every voice that has sounded that cube, ringing or held, and any that
+ * strikes it while it's bent. Returns [touches, touch, press, bend].
  */
 function useTouches(cells, instrument) {
   const touches = useRef(new Map());
+  const voicesOf = useRef(new Map()); // cell index -> the voices that have sounded it, for bending
+  const bends = useRef(new Map()); // cell index -> semitones it is bent by
   const latest = useRef({ cells, instrument });
   latest.current = { cells, instrument };
 
   // a new board or instrument: let go of everything; still-touching hands strike again
   useEffect(() => {
     touches.current.clear();
+    voicesOf.current.clear();
+    bends.current.clear();
     allNotesOff();
   }, [cells, instrument]);
 
-  const press = useCallback((voice, index) => {
+  const touch = useCallback((source, indices) => {
     const map = touches.current;
-    if ((map.get(voice) ?? null) === index) return false;
-    if (index == null) {
+    for (const [voice, index] of map) {
+      if (!voice.startsWith(`${source}:`) || indices.includes(index)) continue;
       map.delete(voice);
       noteOff(voice);
-      return false;
     }
-    const cell = latest.current.cells[index];
-    if (!cell) return false;
-    map.set(voice, index);
-    noteOn(voice, cell.note, latest.current.instrument);
-    return true;
+    let struck = false;
+    for (const index of indices) {
+      const voice = `${source}:${index}`;
+      const cell = latest.current.cells[index];
+      if (map.has(voice) || !cell) continue;
+      map.set(voice, index);
+      if (!voicesOf.current.has(index)) voicesOf.current.set(index, new Set());
+      voicesOf.current.get(index).add(voice);
+      setBend(voice, bends.current.get(index) ?? 0);
+      noteOn(voice, cell.note, latest.current.instrument);
+      struck = true;
+    }
+    return struck;
   }, []);
-  return [touches, press];
+  const press = useCallback((source, index) => touch(source, index == null ? [] : [index]), [touch]);
+  const bend = useCallback((index, semitones) => {
+    if (semitones) bends.current.set(index, semitones);
+    else bends.current.delete(index);
+    for (const voice of voicesOf.current.get(index) ?? []) setBend(voice, semitones);
+  }, []);
+  return [touches, touch, press, bend];
 }
 
 export default function Scene({ cells, chord, state, menu, phone, holding }) {
@@ -225,7 +247,7 @@ export default function Scene({ cells, chord, state, menu, phone, holding }) {
   // hands on the frame, and touching and holding the pick: see Touch.jsx and Grab.jsx
   const handles = useRef({ touching: {}, holding: {}, pick: { touching: {}, holding: {} } });
   const strings = cells.length / FRETS;
-  const [touches, press] = useTouches(cells, state.instrument);
+  const [touches, touch, press, bend] = useTouches(cells, state.instrument);
   const hoverMouse = useCallback((index) => press('mouse', index), [press]);
 
   useEffect(() => {
@@ -292,9 +314,10 @@ export default function Scene({ cells, chord, state, menu, phone, holding }) {
         handles={handles}
         hoverEnabled={!immersive}
         onHover={hoverMouse}
+        onBend={bend}
       />
       {inSession && !phone && <Pick pickRef={pick} handles={handles} position={PICK_POSITION} rotation={PICK_ROTATION} />}
-      {inSession && <TouchPlay board={board} pick={pick} origin={origin} cells={cells} press={press} handles={handles} />}
+      {inSession && <TouchPlay board={board} pick={pick} origin={origin} cells={cells} touch={touch} handles={handles} />}
       {immersive && !hasControllers && <GazePlay board={board} press={press} holding={holding} />}
       <Player
         origin={origin}

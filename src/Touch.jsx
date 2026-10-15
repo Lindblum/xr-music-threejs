@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { FRETS, touchedCell, touchesFrame } from './Fretboard.jsx';
+import { FRETS, touchedCells, touchesFrame } from './Fretboard.jsx';
 import { pickTip } from './Pick.jsx';
 
 // Playing the Fretboard in XR, as in three.js's haptics demo: each
 // controller's tip (or each hand's index fingertip) is a small mallet.
-// Touching a cube strikes its note; a controller kicks as it enters a cube
+// Touching a cube strikes its note (every cube it touches, if it's between
+// them); a controller kicks as it enters a cube
 // and hums softly while it stays inside. Notes outside the scale only sound
 // while the controller's trigger is held (a tracked hand can't play them). Touching the frame gives a lighter
 // tap and hum, so you can feel where to take hold of it. The pick's tip is a
 // mallet too: held, it kicks and hums the hand holding it, and that
 // controller's own tip stops playing; the holding hand's trigger lets it play
-// any note.
+// any note. A hand bending a note (see Grab.jsx) plays only that note.
 
 const HANDS = ['left', 'right'];
-const RADIUS = 0.02; // mallet radius, metres
+export const RADIUS = 0.02; // mallet radius, metres
 export const TIP_FORWARD = 0.01; // controller mallet: just ahead of the ray origin, at the tip
 const STRIKE = [0.8, 40]; // haptic pulse [strength, ms] on entering a cube
 const HUM = [0.2, 60]; // ...and while inside it
@@ -60,12 +61,13 @@ export function pulse(gamepad, [strength, ms]) {
 
 /**
  * Touch play for both hands and the pick. `board`, `pick` and `origin` are
- * refs; `cells` the Fretboard's cells; `press(voice, index | null)` sounds or
- * releases a note. Writes which hands touch the frame into
- * `handles.current.touching`, and reads which hold the pick from
- * `handles.current.pick`. Renders the controller mallets.
+ * refs; `cells` the Fretboard's cells; `touch(source, indices)` sounds the
+ * notes a source touches and releases the rest. Writes which hands touch the
+ * frame into `handles.current.touching`, and reads which hold the pick from
+ * `handles.current.pick` and which note each hand is bending from
+ * `handles.current.bendingHands`. Renders the controller mallets.
  */
-export function TouchPlay({ board, pick, origin, cells, press, handles }) {
+export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
   const gl = useThree((s) => s.gl);
   const nextHum = useRef({});
   const balls = useRef({});
@@ -76,12 +78,15 @@ export function TouchPlay({ board, pick, origin, cells, press, handles }) {
     const now = performance.now() / 1000;
     const { touching, holding } = handles.current;
     const pickHolding = handles.current.pick?.holding ?? {};
+    const bendingHands = handles.current.bendingHands ?? {};
     const fretboard = board.current;
 
     /** One mallet's frame: strike what it touches, and kick or hum `gamepad`. */
     const play = (voice, m, radius, frameToo) => {
-      const index = m && fretboard ? touchedCell(fretboard, m.position, radius, m.trigger) : null;
-      const struck = press(voice, index);
+      // a hand bending a note keeps sounding just that one, whatever it slides past
+      const indices = bendingHands[voice] != null ? [bendingHands[voice]] : m && fretboard ? touchedCells(fretboard, m.position, radius, m.trigger) : [];
+      const struck = touch(voice, indices);
+      const index = indices.length ? indices[0] : null;
       const wasOnFrame = Boolean(touching[voice]);
       const onFrame = Boolean(frameToo && m && fretboard && touchesFrame(fretboard, cells.length / FRETS, m.position, radius));
       if (frameToo) touching[voice] = onFrame;
@@ -115,7 +120,7 @@ export function TouchPlay({ board, pick, origin, cells, press, handles }) {
       const radius = pickTip(p, _pickTip);
       play('pick', { position: _pickTip, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger) }, radius, false);
     } else {
-      press('pick', null);
+      touch('pick', []);
     }
   });
 

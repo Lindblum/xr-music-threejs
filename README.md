@@ -35,7 +35,7 @@ The options panel has two submenus, each marked with an arrow. **Music** holds I
 
 | Action | Desktop | XR |
 | --- | --- | --- |
-| Play a note in the scale (bright) | Hover over it | Touch it with a controller tip or fingertip |
+| Play a note in the scale (bright) | Hover over it | Touch it with a controller tip or fingertip. Each tip, fingertip and the pick sounds every note it touches, so a tip between two cubes plays both, and any number of notes can sound at once |
 | Play by gaze (phones) | — | Look at a note in the scale. Keep a finger on the screen to play notes outside it too |
 | Hands-free panel | — | Look at a panel button for 1 s (a ring fills, then it clicks) |
 | Play any note, in the scale or not | Press the mouse button on it; keep the button down and drag to strum across the board (the view holds still) | Touch it while holding that controller's trigger. A tracked hand can only play notes in the scale |
@@ -49,6 +49,7 @@ The options panel has two submenus, each marked with an arrow. **Music** holds I
 | The pick | — | XR: Headset only. A 10 cm guitar pick waits in front of you, below the board. Put a controller tip on it and hold the grip to carry it, or both grips to scale and turn it, as with the Fretboard. Its tip plays notes as a controller tip does: the hand holding it feels the kick and hum, and that hand's trigger lets it play notes outside the scale. While you hold it, that controller's own tip doesn't play. It glows while touched and held |
 | Show / hide the panel | Gear button, `Enter`, `Esc` | Gear on the panel |
 | Orbit / zoom | Drag / scroll | Walk around. The left stick moves you and the right stick turns you |
+| Bend a note | — | Touch a note with a controller tip and hold the grip, then pull along the frets: the cube slides with your hand and its pitch follows, a semitone higher for each fret's width to the right, lower to the left, up to 3 frets either way. Samples play faster or slower; synths shift pitch. You feel a tick at each semitone, and while bending, that tip plays only the bent note. Let go and it springs back to its fret, its pitch gliding back with it |
 | Feel the frame | — | Touch it with a controller tip: a light tap, then a soft hum while you stay on it. It glows while touched |
 | Move / turn the Fretboard | — | Put a controller tip on the frame and hold the grip. The Fretboard follows that hand, moving and turning with it |
 | Scale / turn the Fretboard | — | Hold both grips on the frame (as in Tilt Brush). Pull your hands apart or push them together to scale it, and turn the line between them to rotate it |

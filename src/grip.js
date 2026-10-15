@@ -4,7 +4,8 @@ import * as THREE from 'three';
 // in Tilt Brush) an object scales with the distance between the hands and
 // turns with the line between them, about their midpoint.
 
-const SQUEEZE = 1; // xr-standard gamepad button index
+const TRIGGER = 0; // xr-standard gamepad button indices
+const SQUEEZE = 1;
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 20;
 
@@ -17,7 +18,7 @@ const _turn = new THREE.Quaternion();
 
 /**
  * Each controller's state in world space: { grip (Matrix4), position, ray,
- * squeeze, gamepad }, keyed by hand. Poses come relative to the XR origin,
+ * squeeze, trigger, gamepad }, keyed by hand. Poses come relative to the XR origin,
  * which locomotion moves, so they're carried through its world matrix.
  */
 export function readControllers(frame, referenceSpace, origin) {
@@ -40,6 +41,7 @@ export function readControllers(frame, referenceSpace, origin) {
       position: new THREE.Vector3().setFromMatrixPosition(grip),
       ray,
       squeeze: Boolean(source.gamepad.buttons[SQUEEZE]?.pressed),
+      trigger: Boolean(source.gamepad.buttons[TRIGGER]?.pressed),
       gamepad: source.gamepad,
     };
   }

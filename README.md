@@ -31,7 +31,7 @@ The Fretboard object holds the note cubes (`Notes`) inside a picture frame (`Fre
 
 ## Controls
 
-The options panel has two submenus, each marked with an arrow. **Music** holds Instrument, Scale, Key, Tuning, Echo, BPM, Beats per Measure and **Progression**, a submenu of its own. **Video** holds Background and View Mode. Each submenu starts with a Back button. Instrument, Scale, Key, Tuning, BPM, Beats per Measure, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row, then pick one. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
+The options panel has two submenus, each marked with an arrow. **Music** holds Instrument, Scale, Key, Tuning, Echo, BPM, Beats per Measure and **Progression**, a submenu of its own. **Video** holds Background and View Mode. Each submenu starts with a Back button. Instrument, Scale, Key, Tuning, BPM, Beats per Measure, Background and View Mode are dropdowns: press one to list its choices beneath it, two to a row, then pick one. The Music settings and the progression are saved in a cookie (for this app's folder only) and restored when the page loads. A panel too tall for the screen scrolls below its title: with the mouse wheel on the monitor, or by pointing at the panel and pushing the right thumbstick up or down in XR.
 
 | Action | Desktop | XR |
 | --- | --- | --- |
@@ -46,8 +46,9 @@ The options panel has two submenus, each marked with an arrow. **Music** holds I
 | Build a progression | Music → Progression. Set the chord to add with **From Key** (the chords on the key's scale degrees, by roman numeral), or with **Root**, **Type** (Maj, Min, Sus2, Sus4) and **Modifier** (None, Dom7, Maj7, 6, Add9), then press **Add**. The progression starts empty; its chords are listed below Add | Same |
 | Edit a progression | Press a chord in the list for **Play From Here**, **Move Earlier**, **Move Later** or **Remove** | Same |
 | Play / pause / stop a progression | Progression: **Play** / **Pause** (shows the chord and beat), `P`; **Stop** returns to the start and raises the key's triad again. It loops, and the playing chord is marked in the list | Same |
-| The pick | — | XR: Headset only. A 10 cm guitar pick waits in front of you, below the board. Put a controller tip on it and hold the grip to carry it, or both grips to scale and turn it, as with the Fretboard. Its tip plays notes as a controller tip does: the hand holding it feels the kick and hum, and that hand's trigger lets it play notes outside the scale. While you hold it, that controller's own tip doesn't play. It glows while touched and held |
+| The pick | — | XR: Headset only. A 10 cm guitar pick, a rounded triangle with all three corners equally rounded, starts docked on the right controller, lying flat and pointing forward from it. Take it off with the other controller: put that tip on it and hold the grip (it clicks). Carry it with one grip, or scale and turn it with both, as with the Fretboard; let go within reach of a controller to dock it there (a click and a buzz on that controller). All of it plays notes, not just the tip: the hand holding it, or the controller it's docked on, feels the kicks and hums, and that hand's trigger lets it play notes outside the scale. Meanwhile that controller's own tip doesn't play. It glows while touched and held. With hand tracking only, it waits in front of you, below the board |
 | Show / hide the panel | Gear button, `Enter`, `Esc` | Gear on the panel |
+| Leave XR | Choose a windowed View Mode | The left controller's menu button (Quest 3 controllers) returns to Normal |
 | Orbit / zoom | Drag / scroll | Walk around. The left stick moves you and the right stick turns you |
 | Bend a note | — | Touch a note with a controller tip and hold the grip, then pull along the frets: the cube slides with your hand and its pitch follows, a semitone higher for each fret's width to the right, lower to the left, up to 3 frets either way. Samples play faster or slower; synths shift pitch. You feel a tick at each semitone, and while bending, that tip plays only the bent note. Let go and it springs back to its fret, its pitch gliding back with it |
 | Feel the frame | — | Touch it with a controller tip: a light tap, then a soft hum while you stay on it. It glows while touched |
@@ -66,8 +67,9 @@ Instruments are samples played back at the note's pitch: Trombone, Piano, Banjo,
 - `src/Fretboard.jsx`: the Fretboard object: the note cubes and their labels, the frame, and the touch tests
 - `src/Touch.jsx`: controller and hand mallets, the haptic pulses for notes and the frame, and gaze play for phones
 - `src/Grab.jsx`, `src/grip.js`: grip-button controls that take hold of the frame or the pick to move, turn and scale it, or carry the panel and dock it to a controller or the frame
-- `src/Pick.jsx`: the XR pick: its shape, and the touch tests for grabbing it and for its tip
+- `src/Pick.jsx`: the XR pick: its shape, its docked pose, and the touch tests for grabbing it and for playing with all of it
 - `src/progression.js`: the chord progression's transport: play, pause, stop and the beat clock
+- `src/settings.js`: saving the music settings and progression in a cookie, and restoring them
 - `src/audio.js`: the Web Audio engine: sample loading, playback, the oscillator voices and the echo
 - `src/pitch.js`: pitch detection for samples (McLeod pitch method)
 - `src/music.js`: note names, colours, scales and tunings, and chords: types, modifiers, names and the chords in a key

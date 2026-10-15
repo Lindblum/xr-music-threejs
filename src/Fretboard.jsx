@@ -307,21 +307,36 @@ export function nearFrame(board, strings, world, reach) {
  * and chord) count.
  */
 export function touchedCells(board, world, radius, outOfScale) {
+  return touchedCellsByPoints(board, [world], radius, outOfScale);
+}
+
+const _locals = [];
+
+/**
+ * Every cell touched by any of the spheres at `points` (world, each `radius`
+ * metres), nearest first: a whole object, such as the pick, as spheres over
+ * its surface.
+ */
+export function touchedCellsByPoints(board, points, radius, outOfScale) {
   const notes = board.getObjectByName('Notes');
   if (!notes) return [];
-  board.worldToLocal(_local.copy(world));
-  const r = radius / board.scale.x;
+  const locals = points.map((p, k) => board.worldToLocal((_locals[k] ??= new THREE.Vector3()).copy(p)));
+  const r2 = (radius / board.scale.x) ** 2;
   const half = CUBE / 2;
   const hits = [];
   notes.children.forEach((mesh, i) => {
     if (!mesh.userData.playable && !outOfScale) return;
     const { x, y, z } = mesh.position;
-    // distance from the sphere's centre to the box
-    const dx = Math.max(Math.abs(_local.x - x) - half, 0);
-    const dy = Math.max(Math.abs(_local.y - y) - half, 0);
-    const dz = Math.max(Math.abs(_local.z - z) - half, 0);
-    if (dx * dx + dy * dy + dz * dz > r * r) return;
-    hits.push({ i, d: (_local.x - x) ** 2 + (_local.y - y) ** 2 + (_local.z - z) ** 2 });
+    let nearest = Infinity;
+    for (const p of locals) {
+      // distance from the sphere's centre to the box
+      const dx = Math.max(Math.abs(p.x - x) - half, 0);
+      const dy = Math.max(Math.abs(p.y - y) - half, 0);
+      const dz = Math.max(Math.abs(p.z - z) - half, 0);
+      if (dx * dx + dy * dy + dz * dz > r2) continue;
+      nearest = Math.min(nearest, (p.x - x) ** 2 + (p.y - y) ** 2 + (p.z - z) ** 2);
+    }
+    if (nearest < Infinity) hits.push({ i, d: nearest });
   });
   return hits.sort((a, b) => a.d - b.d).map((hit) => hit.i);
 }

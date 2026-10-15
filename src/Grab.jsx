@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { applyTwoHands, readControllers } from './grip.js';
 import { SPACING, frameSize, nearFrame, touchedCells, touchesFrame } from './Fretboard.jsx';
 import { RADIUS, TIP_FORWARD, pulse } from './Touch.jsx';
-import { touchesPick } from './Pick.jsx';
+import { PICK_DOCK_POSITION, PICK_DOCK_ROTATION, touchesPick } from './Pick.jsx';
 import { playClick } from './audio.js';
 
 // Touch controller grips. A grip pressed while that controller points at the
@@ -14,6 +14,10 @@ import { playClick } from './audio.js';
 // against the frame's nearest edge, and moves with the Fretboard; let go
 // anywhere else and it stays put, travelling with the player. Docking
 // clicks, and kicks the controller it docks to.
+//
+// The pick docks on controllers the same way: a grip from the other hand
+// takes it off one (with a click), and let go near a controller it docks
+// there, pointing forward from it.
 //
 // A grip pressed with the controller's tip on the pick, or on the
 // Fretboard's frame, takes hold of it: with one hand it follows that hand
@@ -30,6 +34,7 @@ const CARRIED = ['board', 'pick']; // what grips move, turn and scale
 const BEND_MAX = 3; // frets (semitones) a note bends either way
 const BEND_PULSE = [0.5, 30]; // on taking hold of a note
 const BEND_TICK = [0.3, 15]; // at each whole semitone of bend
+const PICK_DOCK_REACH = 0.15; // metres from the held pick's centre to the other controller, to dock there
 const PANEL_REACH = 0.05; // a controller this close to the panel's face takes it, as well as one pointing at it
 const GRAB_PULSE = [0.6, 50]; // haptic [strength, ms] on taking hold of the frame
 const DETACH_PULSE = [0.4, 30]; // on taking the panel off a dock
@@ -165,12 +170,14 @@ function frameDockOffset(board, strings, panel) {
  * relative to) are refs; `strings` is the Fretboard's row count, for the
  * frame's size. Writes which hands hold the frame into
  * `handles.current.holding`, and which touch and hold the pick into
- * `handles.current.pick` ({ touching, holding }). `menuDock.current.to`
+ * `handles.current.pick` ({ touching, holding, docked }). `pickDock.current`
+ * is where the pick is docked ({ to: 'left' | 'right' | null, placed, scale }),
+ * and the pick must be a direct child of the scene. `menuDock.current.to`
  * is where the panel is docked: 'left', 'right', 'frame' or null (free), and
  * `placed` whether the player has moved it; the panel must be a direct child
  * of the XROrigin.
  */
-export function useControllerGrips({ board, pick, menu, menuDock, origin, strings, handles }) {
+export function useControllerGrips({ board, pick, pickDock, menu, menuDock, origin, strings, handles }) {
   const gl = useThree((s) => s.gl);
   const grabs = useRef({}); // hand -> { target: 'board' | 'pick' | 'none' } | { target: 'menu', offset, point, size, grow, zone }
   // per carried object: { oneHand: { hand, offset } while a single hand carries it, last: the holding hands' positions last frame }
@@ -183,7 +190,7 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
       grabs.current = {};
       for (const target of CARRIED) carried.current[target] = { oneHand: null, last: {} };
       handles.current.holding = {};
-      handles.current.pick = { touching: {}, holding: {} };
+      handles.current.pick = { touching: {}, holding: {}, docked: null };
       handles.current.bending = {};
       handles.current.bendingHands = {};
       return;
@@ -193,6 +200,7 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
     const thePick = pick.current;
     const panel = menu.current;
     const dock = menuDock.current;
+    const pDock = pickDock.current;
     const holding = { board: {}, pick: {} }; // target -> hand -> controller, for the hands carrying it
     const pickTouching = {};
     const bending = {}; // cell index -> how far it's pulled along the frets, in board metres
@@ -210,11 +218,21 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
     for (const hand of HANDS) {
       const c = controllers[hand];
       let grab = grabs.current[hand];
-      if (c && thePick) {
+      // the controller the pick is docked on is always touching it, so doesn't count
+      if (c && thePick && thePick.visible && pDock.to !== hand) {
         _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
         pickTouching[hand] = touchesPick(thePick, _tip, GRAB_RADIUS);
       }
       if (!c?.squeeze) {
+        // letting go of the pick, if no other hand has it, docks it on a controller within reach
+        const other = hand === 'left' ? 'right' : 'left';
+        const otherHolds = grabs.current[other]?.target === 'pick' && controllers[other]?.squeeze;
+        if (c && grab?.target === 'pick' && thePick && grab.zone && !otherHolds) {
+          pDock.to = grab.zone;
+          pDock.scale = _scale.setFromMatrixScale(thePick.matrixWorld).x;
+          pulse(controllers[grab.zone].gamepad, DOCK_PULSE);
+          playClick('attach');
+        }
         // letting go of the panel docks it, if it was within reach of a dock
         if (c && grab?.target === 'menu' && panel && grab.zone) {
           if (grab.zone === 'frame') {
@@ -231,9 +249,14 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
         continue;
       }
       if (!grab && pickTouching[hand]) {
-        // a new grip with the tip on the pick takes the pick
-        grab = grabs.current[hand] = { target: 'pick' };
-        pulse(c.gamepad, GRAB_PULSE);
+        // a new grip with the tip on the pick takes the pick, off its dock if it's docked
+        if (pDock.to) {
+          playClick('detach');
+          pulse(c.gamepad, DETACH_PULSE);
+        } else pulse(c.gamepad, GRAB_PULSE);
+        pDock.to = null;
+        pDock.placed = true;
+        grab = grabs.current[hand] = { target: 'pick', zone: null };
       }
       if (!grab) {
         // a new grip: the menu if this controller is pointing at it or touching it, else the frame if its tip is on it
@@ -302,11 +325,34 @@ export function useControllerGrips({ board, pick, menu, menuDock, origin, string
     }
     const flags = (hands) => ({ left: Boolean(hands.left), right: Boolean(hands.right) });
     handles.current.holding = flags(holding.board);
-    handles.current.pick = { touching: flags(pickTouching), holding: flags(holding.pick) };
+    handles.current.pick = { touching: flags(pickTouching), holding: flags(holding.pick), docked: pDock.to };
     handles.current.bending = bending;
     handles.current.bendingHands = bendingHands;
     carryByHands(fretboard, holding.board, carried.current.board);
     carryByHands(thePick, holding.pick, carried.current.pick);
+
+    if (thePick) {
+      // held in one hand, the pick can dock on the other controller: a tick as it comes within reach
+      const pickHands = Object.keys(holding.pick);
+      for (const hand of pickHands) {
+        const grab = grabs.current[hand];
+        let zone = null;
+        if (pickHands.length === 1) {
+          thePick.updateMatrixWorld();
+          const other = hand === 'left' ? 'right' : 'left';
+          if (controllers[other]?.position.distanceTo(_centre.setFromMatrixPosition(thePick.matrixWorld)) < PICK_DOCK_REACH) zone = other;
+        }
+        if (zone && zone !== grab.zone) pulse(controllers[zone].gamepad, ZONE_TICK);
+        grab.zone = zone;
+      }
+      // docked, it follows its controller, pointing forward; on an untracked controller it hides
+      thePick.visible = true;
+      if (pDock.to) {
+        const c = controllers[pDock.to];
+        thePick.visible = Boolean(c);
+        if (c) carry(thePick, c.rayMatrix, _offset.compose(PICK_DOCK_POSITION, PICK_DOCK_ROTATION, _scale.setScalar(pDock.scale ?? 1)));
+      }
+    }
 
     // a docked panel follows its dock, after the Fretboard has moved; on an untracked controller it hides
     if (!panel) return;

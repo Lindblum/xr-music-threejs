@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { FRETS, touchedCells, touchesFrame } from './Fretboard.jsx';
-import { pickTip } from './Pick.jsx';
+import { FRETS, touchedCells, touchedCellsByPoints, touchesFrame } from './Fretboard.jsx';
+import { pickPoints } from './Pick.jsx';
 
 // Playing the Fretboard in XR, as in three.js's haptics demo: each
 // controller's tip (or each hand's index fingertip) is a small mallet.
@@ -10,10 +10,10 @@ import { pickTip } from './Pick.jsx';
 // them); a controller kicks as it enters a cube
 // and hums softly while it stays inside. Notes outside the scale only sound
 // while the controller's trigger is held (a tracked hand can't play them). Touching the frame gives a lighter
-// tap and hum, so you can feel where to take hold of it. The pick's tip is a
-// mallet too: held, it kicks and hums the hand holding it, and that
-// controller's own tip stops playing; the holding hand's trigger lets it play
-// any note. A hand bending a note (see Grab.jsx) plays only that note.
+// tap and hum, so you can feel where to take hold of it. The whole pick is a
+// mallet too: held or docked, it kicks and hums the hand holding it, and that
+// controller's own tip stops playing; that hand's trigger lets it play any
+// note. A hand bending a note (see Grab.jsx) plays only that note.
 
 const HANDS = ['left', 'right'];
 export const RADIUS = 0.02; // mallet radius, metres
@@ -27,7 +27,6 @@ const HUM_EVERY = 0.05; // seconds between hum pulses, so they overlap into a st
 
 const _pose = new THREE.Matrix4();
 const _dir = new THREE.Vector3();
-const _pickTip = new THREE.Vector3();
 
 /** Each hand's mallet in world space: { position, gamepad?, controller, trigger }, read straight from the XR frame. */
 function readMallets(frame, referenceSpace, origin) {
@@ -63,8 +62,9 @@ export function pulse(gamepad, [strength, ms]) {
  * Touch play for both hands and the pick. `board`, `pick` and `origin` are
  * refs; `cells` the Fretboard's cells; `touch(source, indices)` sounds the
  * notes a source touches and releases the rest. Writes which hands touch the
- * frame into `handles.current.touching`, and reads which hold the pick from
- * `handles.current.pick` and which note each hand is bending from
+ * frame into `handles.current.touching`, and reads which hold the pick (or
+ * have it docked) from `handles.current.pick` and which note each hand is
+ * bending from
  * `handles.current.bendingHands`. Renders the controller mallets.
  */
 export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
@@ -77,14 +77,18 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
     const mallets = frame && origin.current && referenceSpace ? readMallets(frame, referenceSpace, origin.current) : {};
     const now = performance.now() / 1000;
     const { touching, holding } = handles.current;
-    const pickHolding = handles.current.pick?.holding ?? {};
+    // the hands holding the pick, or the one it's docked on
+    const { holding: pickHeld = {}, docked: pickDocked = null } = handles.current.pick ?? {};
+    const pickHolding = { ...pickHeld, ...(pickDocked && { [pickDocked]: true }) };
     const bendingHands = handles.current.bendingHands ?? {};
     const fretboard = board.current;
 
     /** One mallet's frame: strike what it touches, and kick or hum `gamepad`. */
     const play = (voice, m, radius, frameToo) => {
       // a hand bending a note keeps sounding just that one, whatever it slides past
-      const indices = bendingHands[voice] != null ? [bendingHands[voice]] : m && fretboard ? touchedCells(fretboard, m.position, radius, m.trigger) : [];
+      const touched = () =>
+        m.points ? touchedCellsByPoints(fretboard, m.points, radius, m.trigger) : touchedCells(fretboard, m.position, radius, m.trigger);
+      const indices = bendingHands[voice] != null ? [bendingHands[voice]] : m && fretboard ? touched() : [];
       const struck = touch(voice, indices);
       const index = indices.length ? indices[0] : null;
       const wasOnFrame = Boolean(touching[voice]);
@@ -115,10 +119,10 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
 
     const p = pick.current;
     if (p) {
-      // the pick's tip, with the trigger and haptics of the hand holding it (the first, if both)
+      // all of the pick, with the trigger and haptics of the hand holding it (the first, if both)
       const holder = mallets[HANDS.find((hand) => pickHolding[hand])];
-      const radius = pickTip(p, _pickTip);
-      play('pick', { position: _pickTip, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger) }, radius, false);
+      const { points, radius } = pickPoints(p);
+      play('pick', p.visible ? { points, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger) } : null, radius, false);
     } else {
       touch('pick', []);
     }

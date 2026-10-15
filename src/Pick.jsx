@@ -2,21 +2,25 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-// The pick: a 10 cm guitar pick for XR: Headset. A grip on it carries it,
-// both grips scale and turn it, as with the Fretboard (see Grab.jsx); its tip
-// strikes notes as a controller's does (see Touch.jsx). In pick space it lies
-// in the XY plane, face toward +Z, tip pointing down -Y.
+// The pick: a 10 cm guitar pick for XR: Headset. It starts docked on the
+// right controller, pointing forward from it; a grip on it from the other
+// hand takes it, both grips scale and turn it, as with the Fretboard, and let
+// go near a controller it docks there (see Grab.jsx). Every part of it
+// strikes notes, as a controller's tip does (see Touch.jsx). In pick space it
+// lies in the XY plane, face toward +Z, tip pointing down -Y.
 
-// The outline: the convex hull of a small circle at the tip and two broad ones at the shoulders
+// The outline: a rounded triangle, the convex hull of three circles of the same radius, one at each corner
+const CORNER = 0.015;
 const CIRCLES = [
-  { x: 0, y: -0.045, r: 0.007 }, // the tip
-  { x: -0.028, y: 0.025, r: 0.023 },
-  { x: 0.028, y: 0.025, r: 0.023 },
+  { x: 0, y: -0.04, r: CORNER }, // the tip
+  { x: -0.034, y: 0.03, r: CORNER },
+  { x: 0.034, y: 0.03, r: CORNER },
 ];
 const THICKNESS = 0.004; // with the bevel, about 6 mm
 const BEVEL = 0.001;
-export const PICK_TIP = new THREE.Vector3(CIRCLES[0].x, CIRCLES[0].y, 0);
-export const PICK_TIP_RADIUS = CIRCLES[0].r;
+const SAMPLE_SPACING = 0.012; // between the points that stand for the pick in the touch tests
+/** The radius around each sample point, in pick metres: it closes the gaps between them and covers the thickness. */
+export const PICK_SAMPLE_RADIUS = Math.max((SAMPLE_SPACING * Math.SQRT2) / 2, THICKNESS / 2);
 const COLOR = '#d9642b';
 const TOUCHED = new THREE.Color('#3355ff').multiplyScalar(0.35);
 const HELD = new THREE.Color('#3355ff').multiplyScalar(0.7);
@@ -56,6 +60,19 @@ function pickGeometry() {
   return geometry;
 }
 
+/** Points over the whole face, a grid inside plus the outline itself, for the touch tests. */
+function samplePoints() {
+  const points = [];
+  for (let x = -0.05; x <= 0.05; x += SAMPLE_SPACING)
+    for (let y = -0.06; y <= 0.05; y += SAMPLE_SPACING) if (outsideOutline(x, y) === 0) points.push(new THREE.Vector3(x, y, 0));
+  OUTLINE.forEach((p, i) => {
+    const next = OUTLINE[(i + 1) % OUTLINE.length];
+    const steps = Math.ceil(p.distanceTo(next) / SAMPLE_SPACING);
+    for (let k = 0; k < steps; k++) points.push(new THREE.Vector3().lerpVectors(new THREE.Vector3(p.x, p.y, 0), new THREE.Vector3(next.x, next.y, 0), k / steps));
+  });
+  return points;
+}
+
 /** How far a point in pick space lies outside the outline, in the plane (0 inside). */
 function outsideOutline(x, y) {
   let inside = true;
@@ -82,15 +99,31 @@ export function touchesPick(pick, world, reach) {
   return Math.abs(_local.z) < THICKNESS / 2 + r && outsideOutline(_local.x, _local.y) < r;
 }
 
-/** The pick's tip in world space, into `target`, and its radius there in metres. */
-export function pickTip(pick, target) {
-  target.copy(PICK_TIP).applyMatrix4(pick.matrixWorld);
-  return PICK_TIP_RADIUS * _scale.setFromMatrixScale(pick.matrixWorld).x;
+let samples = null;
+const worldSamples = [];
+
+/**
+ * The pick's sample points in world space (reused between calls), and the
+ * radius around each there in metres: together they cover the whole pick.
+ */
+export function pickPoints(pick) {
+  samples ??= samplePoints();
+  samples.forEach((p, i) => (worldSamples[i] ??= new THREE.Vector3()).copy(p).applyMatrix4(pick.matrixWorld));
+  return { points: worldSamples, radius: PICK_SAMPLE_RADIUS * _scale.setFromMatrixScale(pick.matrixWorld).x };
 }
 
 /**
+ * Docked on a controller, in its target-ray space (-Z forward out of the
+ * controller): lying flat, tip forward, reaching about 8 cm past the
+ * controller's front.
+ */
+export const PICK_DOCK_POSITION = new THREE.Vector3(0, 0, -0.03);
+export const PICK_DOCK_ROTATION = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+
+/**
  * The pick, in `pickRef`. `handles.current.pick` is { touching, holding }
- * (hand -> true), which light it up like the Fretboard's frame.
+ * (hand -> true), which light it up like the Fretboard's frame, and `docked`
+ * (the hand it's on, or null).
  */
 export function Pick({ pickRef, handles, ...props }) {
   const geometry = useMemo(pickGeometry, []);

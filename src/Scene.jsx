@@ -27,9 +27,10 @@ const MENU_POSITION = [-0.65, 1.05, 0.05];
 const MENU_ROTATION = [0, 0.9, 0];
 // a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
 const PHONE_STEREO_MENU_SCALE = 1.5;
-// The pick (XR: Headset only) starts in front of the player, a little right
-// of centre and below the board's middle, clear of its raised notes, face on,
-// tip down. Constants, so a re-render never undoes a move.
+// The pick (XR: Headset only) starts docked on the right controller (see
+// Grab.jsx). Without controllers it waits in front of the player, a little
+// right of centre and below the board's middle, clear of its raised notes,
+// face on, tip down. Constants, so a re-render never undoes a move.
 const PICK_POSITION = [0.3, 0.95, -0.05];
 const PICK_ROTATION = [0, -0.3, 0.25];
 // With VR controllers the panel starts docked on the left one, like a palette
@@ -145,7 +146,22 @@ const _head = new THREE.Vector3();
  * The grip buttons, on the Fretboard's frame, move, turn and scale it, or
  * carry and dock the panel. An undocked panel travels with the player.
  */
-function Player({ origin, board, pick, menu, menuDock, strings, handles, children }) {
+const MENU_BUTTON = 7; // the left controller's menu button (xr-standard index on Quest 3 / Touch Plus)
+
+/** The left controller's menu button, pressed, calls `onPress`. */
+function useMenuButton(onPress) {
+  const pressed = useRef(false);
+  const latest = useRef(onPress);
+  latest.current = onPress;
+  useFrame((_, __, frame) => {
+    const source = frame && [...frame.session.inputSources].find((s) => s.handedness === 'left' && s.gamepad);
+    const down = Boolean(source?.gamepad.buttons[MENU_BUTTON]?.pressed);
+    if (down && !pressed.current) latest.current?.();
+    pressed.current = down;
+  });
+}
+
+function Player({ origin, board, pick, pickDock, menu, menuDock, strings, handles, onExitXR, children }) {
   useXRControllerLocomotion(
     (velocity, turn, delta, state) => {
       const o = origin.current;
@@ -165,7 +181,8 @@ function Player({ origin, board, pick, menu, menuDock, strings, handles, childre
     { speed: 1.5 },
     { type: 'smooth', speed: 1.5 },
   );
-  useControllerGrips({ board, pick, menu, menuDock, origin, strings, handles });
+  useControllerGrips({ board, pick, pickDock, menu, menuDock, origin, strings, handles });
+  useMenuButton(onExitXR);
   return <XROrigin ref={origin}>{children}</XROrigin>;
 }
 
@@ -224,7 +241,7 @@ function useTouches(cells, instrument) {
   return [touches, touch, press, bend];
 }
 
-export default function Scene({ cells, chord, state, menu, phone, holding }) {
+export default function Scene({ cells, chord, state, menu, phone, holding, onExitXR }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -233,6 +250,9 @@ export default function Scene({ cells, chord, state, menu, phone, holding }) {
   const hasControllers = useXR((s) => s.inputSourceStates.some((input) => input.type === 'controller'));
   const leftController = useXR((s) =>
     s.inputSourceStates.some((input) => input.type === 'controller' && input.inputSource.handedness === 'left'),
+  );
+  const rightController = useXR((s) =>
+    s.inputSourceStates.some((input) => input.type === 'controller' && input.inputSource.handedness === 'right'),
   );
   const immersive = inSession || state.handheld;
   // the motion-sensor view has no AR session: passthrough is the rear camera
@@ -244,6 +264,7 @@ export default function Scene({ cells, chord, state, menu, phone, holding }) {
   const menuPanel = useRef(null);
   const pick = useRef(null);
   const menuDock = useRef({ to: null, placed: false }); // where the panel is docked: see Grab.jsx
+  const pickDock = useRef({ to: null, placed: false, scale: 1 }); // where the pick is docked: see Grab.jsx
   // hands on the frame, and touching and holding the pick: see Touch.jsx and Grab.jsx
   const handles = useRef({ touching: {}, holding: {}, pick: { touching: {}, holding: {} } });
   const strings = cells.length / FRETS;
@@ -263,14 +284,28 @@ export default function Scene({ cells, chord, state, menu, phone, holding }) {
   }, [inSession]);
 
   // controllers arriving dock a panel the player hasn't moved on the left one (or the right, if
-  // that's all there is); losing them all (to hand tracking) frees a controller-docked panel
+  // that's all there is), and the pick on the right one (or the left); losing them all (to hand
+  // tracking) frees a controller-docked panel, and the pick where it started
   useEffect(() => {
     const dock = menuDock.current;
+    const pDock = pickDock.current;
     if (!inSession) {
       Object.assign(dock, { to: null, placed: false });
+      Object.assign(pDock, { to: null, placed: false, scale: 1 });
     } else if (hasControllers) {
       if (!dock.to && !dock.placed) dock.to = leftController ? 'left' : 'right';
-    } else if (dock.to === 'left' || dock.to === 'right') {
+      if (!pDock.to && !pDock.placed) pDock.to = rightController ? 'right' : 'left';
+    } else if (pDock.to) {
+      pDock.to = null;
+      const p = pick.current;
+      if (p) {
+        p.position.fromArray(PICK_POSITION);
+        p.rotation.fromArray(PICK_ROTATION);
+        p.scale.setScalar(1);
+        p.visible = true;
+      }
+    }
+    if (inSession && !hasControllers && (dock.to === 'left' || dock.to === 'right')) {
       dock.to = null;
       const panel = menuPanel.current;
       if (!panel) return;
@@ -279,7 +314,7 @@ export default function Scene({ cells, chord, state, menu, phone, holding }) {
       panel.scale.setScalar(1);
       panel.visible = true;
     }
-  }, [inSession, hasControllers, leftController]);
+  }, [inSession, hasControllers, leftController, rightController]);
 
   return (
     <>
@@ -323,10 +358,12 @@ export default function Scene({ cells, chord, state, menu, phone, holding }) {
         origin={origin}
         board={board}
         pick={pick}
+        pickDock={pickDock}
         menu={menuPanel}
         menuDock={menuDock}
         strings={strings}
         handles={handles}
+        onExitXR={onExitXR}
       >
         {immersive && (
           <XRMenuPanel

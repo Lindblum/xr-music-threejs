@@ -11,8 +11,8 @@ import { buildCells } from './Fretboard.jsx';
 import { INSTRUMENTS, loadInstrument, setEcho, unlockAudio } from './audio.js';
 import { SCALES, TUNINGS, chordPitchClasses } from './music.js';
 import { useProgression } from './progression.js';
+import { loadSettings, saveSettings } from './settings.js';
 import {
-  BEATS_PER_MEASURE,
   CHORD_ACTIONS,
   CHORD_PREFIX,
   DROPDOWNS,
@@ -77,19 +77,25 @@ function isPhone() {
 const describe = (e) => `${e?.name ?? 'Error'}${e?.message ? ` - ${e.message}` : ''}`;
 
 function useMusicState() {
-  const [instrument, setInstrument] = useState(INSTRUMENTS[0]);
-  const [scale, setScale] = useState(SCALES[0]);
-  const [key, setKey] = useState(0); // C
-  const [tuning, setTuning] = useState(TUNINGS[0]);
-  const [echo, setEchoOn] = useState(false);
+  // the music settings and progression start as they were left (see settings.js)
+  const [saved] = useState(loadSettings);
+  const [instrument, setInstrument] = useState(saved.instrument);
+  const [scale, setScale] = useState(saved.scale);
+  const [key, setKey] = useState(saved.key);
+  const [tuning, setTuning] = useState(saved.tuning);
+  const [echo, setEchoOn] = useState(saved.echo);
   const [background, setBackground] = useState('skybox'); // 'solid' | 'skybox' | 'passthrough'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [page, setPage] = useState('main'); // the submenu showing, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
-  const [bpm, setBpm] = useState(100);
-  const [beatsPerMeasure, setBeatsPerMeasure] = useState(BEATS_PER_MEASURE[2]); // 4
-  const [progression, setProgression] = useState([]); // chords: { root, type, modifier }, see music.js
-  const [draft, setDraft] = useState({ root: 0, type: 'maj', modifier: 'none' }); // the chord Add adds
+  const [bpm, setBpm] = useState(saved.bpm);
+  const [beatsPerMeasure, setBeatsPerMeasure] = useState(saved.beatsPerMeasure);
+  const [progression, setProgression] = useState(saved.progression); // chords: { root, type, modifier }, see music.js
+  const [draft, setDraft] = useState(saved.draft); // the chord Add adds
+  useEffect(
+    () => saveSettings({ instrument, scale, key, tuning, echo, bpm, beatsPerMeasure, progression, draft }),
+    [instrument, scale, key, tuning, echo, bpm, beatsPerMeasure, progression, draft],
+  );
 
   const actions = useMemo(
     () => ({
@@ -460,6 +466,7 @@ export default function App() {
             chord={chordTones}
             state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
             menu={menu}
+            onExitXR={() => selectView('normal')}
             phone={phone}
             holding={holding}
           />

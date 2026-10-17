@@ -1,8 +1,8 @@
-# XR Music
+# Fretboard XR
 
 A fretboard of note cubes you play by touch in WebXR, or with the mouse on desktop. Built with [three.js](https://threejs.org), React, [@react-three/fiber](https://r3f.docs.pmnd.rs) and [@react-three/xr](https://pmndrs.github.io/xr/).
 
-![XR Music: the Music menu beside the fretboard](docs/screenshot.png)
+![Fretboard XR: the Music menu beside the fretboard](docs/screenshot.png)
 
 ## Features
 

@@ -39,23 +39,8 @@ canvas { display: block; touch-action: none; }
 .hud header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .hud h1 { flex: 1; margin: 0; font-size: 16px; font-weight: 650; letter-spacing: 0.02em; }
 .hud .collapse { display: grid; place-items: center; width: 30px; height: 28px; padding: 0; }
-.hud-gear {
-  position: fixed;
-  top: max(12px, env(safe-area-inset-top));
-  left: max(12px, env(safe-area-inset-left));
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border-radius: 12px;
-  background: var(--panel);
-  border-color: var(--border);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  font-size: 18px;
-}
-.hud-gear:hover { background: rgba(40, 46, 66, 0.85); }
+/* closed: the panel around its gear alone, the gear where it sits in the open panel */
+.hud.collapsed header { margin-bottom: 0; }
 
 .stats { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
@@ -99,6 +84,8 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 /* buttons sharing a row, in equal columns */
 .menu-row { display: grid; gap: 8px; }
+/* an open section's buttons, set in beneath its header as far as a dropdown's choices */
+.menu-indent { display: flex; flex-direction: column; gap: 10px; margin-left: 24px; }
 /* in the sizer, columns in the row's shares (set on the row), as a real row would need */
 .menu-sizer .sizer-row { grid-auto-flow: column; }
 /* a framed group of buttons, such as the progression's queue */

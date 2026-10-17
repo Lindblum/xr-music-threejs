@@ -1,8 +1,9 @@
 // Options menu model shared by the windowed panel (DOM) and the XR panel
-// (drawn on a canvas): one list of buttons, each "Name: Value". A button
-// cycles its setting, opens a submenu (an arrow on its right), or opens a
-// dropdown list of choices beneath it (a chevron on its right). Buttons can
-// share a row, and a run of them can sit in a framed group (see menuBlocks).
+// (drawn on a canvas): one page of buttons, each "Name: Value", in sections
+// (Music, Video) that open and close in place, like dropdowns. A button
+// cycles its setting or opens a dropdown list of choices beneath it (a
+// chevron on its right). Buttons can share a row, and a run of them can sit
+// in a framed group (see menuBlocks).
 
 import { INSTRUMENTS, isSynth } from './audio.js';
 import {
@@ -21,7 +22,7 @@ import {
   stockChords,
 } from './music.js';
 
-export const MENU_TITLE = 'XR Music';
+export const MENU_TITLE = 'Fretboard XR';
 
 /** Options → Background, in list order (passthrough last). */
 export const BACKGROUNDS = ['solid', 'skybox', 'passthrough'];
@@ -87,12 +88,8 @@ export function splitLabel(label) {
   return at < 0 ? { name: label, value: '' } : { name: label.slice(0, at), value: label.slice(at + 2) };
 }
 
-/** Submenus. The top page links to each; each starts with a Back button. */
-export const PAGES = ['main', 'music', 'video'];
-const PAGE_TITLES = { main: MENU_TITLE, music: 'Music', video: 'Video' };
-export const PAGE_PREFIX = 'page:';
-
-export const menuTitle = (page) => PAGE_TITLES[page];
+/** A section's header: its button's id is this and the section's. */
+export const SECTION_PREFIX = 'section:';
 
 export const PICK_PREFIX = 'pick:';
 
@@ -167,7 +164,7 @@ export function dropdownChoices(env, state) {
   };
 }
 
-/** The Music page's first part: the sound (a synth or a sample), quantizing, velocity sensitivity, and the board's tuning. The effects, the echo among them, are on the FilterFrame. */
+/** The Music section's first part: the sound (a synth or a sample), quantizing and velocity sensitivity side by side, and the board's tuning. The effects, the echo among them, are on the FilterFrame. */
 function instrumentItems(state) {
   return [
     {
@@ -183,6 +180,8 @@ function instrumentItems(state) {
       label: `Quantize: ${QUANTIZE.find((q) => q.division === state.quantize).name}`,
       icon: 'beats',
       title: 'Holds each note back to the next beat, or part of one',
+      row: 'timing',
+      small: true,
       dropdown: dropdown(
         state,
         'quantize',
@@ -197,6 +196,9 @@ function instrumentItems(state) {
       label: `Velocity Sensitivity: ${state.velocity ? 'On' : 'Off'}`,
       icon: 'velocity',
       title: 'Notes are as loud as the controller, pick or mouse is fast as it strikes them',
+      row: 'timing',
+      small: true,
+      span: 1.25, // the longer label
     },
     {
       id: 'tuning',
@@ -219,7 +221,7 @@ function playLabel(state) {
 export const QUEUE_COLUMNS = 4;
 
 /**
- * The Music page's second part, the progression: the transport and the tempo, a stock progression to
+ * The Music section's second part, the progression: the transport and the tempo, a stock progression to
  * start from, the key and scale, then the chord being built (a degree's
  * triad, then on one row its root's alteration, its quality and modifier),
  * Add Chord, Clear and Play on Select on one row, then the queue: the progression's chords, four to a
@@ -365,15 +367,17 @@ function progressionItems(state) {
 
 /**
  * The items laid out: blocks of consecutive items in the same group (or in
- * none), each a list of rows, where consecutive items with the same `row`
- * share one (see rowSpans). Each block: { group (or null), rows }.
+ * none) and equally indented, each a list of rows, where consecutive items
+ * with the same `row` share one (see rowSpans). Each block: { group (or
+ * null), indent, rows }.
  */
 export function menuBlocks(items) {
   const blocks = [];
   for (const item of items) {
     const group = item.group ?? null;
+    const indent = Boolean(item.indent);
     let block = blocks.at(-1);
-    if (!block || block.group !== group) blocks.push((block = { group, rows: [] }));
+    if (!block || block.group !== group || block.indent !== indent) blocks.push((block = { group, indent, rows: [] }));
     const row = block.rows.at(-1);
     if (row && item.row != null && row[0].row === item.row) row.push(item);
     else block.rows.push([item]);
@@ -429,16 +433,26 @@ function videoItems(state, env) {
   ];
 }
 
-const BACK = { id: `${PAGE_PREFIX}main`, label: 'Back', icon: 'back' };
+/**
+ * The sections, in order: each one's header and the buttons it opens onto.
+ * Music: the sound and the board, then the progression; a long one, which
+ * both panels scroll.
+ */
+const SECTIONS = [
+  { id: 'music', label: 'Music', icon: 'instrument', items: (state) => [...instrumentItems(state), ...progressionItems(state)] },
+  { id: 'video', label: 'Video', icon: 'video', items: videoItems },
+];
 
 /**
- * The buttons on `state.page`. Items: { id, label ("Name: Value", see
- * splitLabel), icon?, disabled?, title?, submenu?, dropdown?, and for
- * layout row?, span?, cols?, group?, small?, compact?, current?, sizeLabel? }. `submenu`:
- * the id ("page:<page>") opens that page, drawn with an arrow at the far
- * right. `dropdown`: { open, options: [{ id, label, selected }] }, drawn
- * with a chevron at the far right and, when open, its options beneath.
- * `row` / `span` / `cols` / `group`: see menuBlocks and rowSpans.
+ * The buttons: each section's header, and its buttons beneath while it's
+ * open (`state.sections`: id -> true). Items: { id, label ("Name: Value", see
+ * splitLabel), icon?, disabled?, title?, section?, dropdown?, and for
+ * layout row?, span?, cols?, group?, indent?, small?, compact?, current?, sizeLabel? }. `section`:
+ * { open }, a section's header ("section:<id>" opens or closes it), drawn
+ * with a chevron at the far right, like a dropdown's. `dropdown`: { open,
+ * options: [{ id, label, selected }] }, drawn with a chevron at the far
+ * right and, when open, its options beneath.
+ * `row` / `span` / `cols` / `group`: see menuBlocks and rowSpans. `indent`: in an open section, set in from its header.
  * `sizeLabel`: the label the panels size for, if not `label`. `small`: a smaller font, for
  * buttons sharing a row; `compact`: just the label, centred; `current`: lit,
  * as the progression's playing chord: in `dim`, split into `beats`, with
@@ -446,18 +460,20 @@ const BACK = { id: `${PAGE_PREFIX}main`, label: 'Back', icon: 'back' };
  * `env`: { xrSupported, passthroughAvailable, checking, views (available) }.
  */
 export function menuItems(state, env) {
-  // Music: the sound and the board, then the progression; a long page, which both panels scroll
-  if (state.page === 'music') return [BACK, ...instrumentItems(state), ...progressionItems(state)];
-  if (state.page === 'video') return [BACK, ...videoItems(state, env)];
-  return [
-    { id: `${PAGE_PREFIX}music`, label: 'Music', icon: 'instrument', submenu: true },
-    { id: `${PAGE_PREFIX}video`, label: 'Video', icon: 'video', submenu: true },
-  ];
+  return SECTIONS.flatMap(({ id, label, icon, items }) => {
+    const open = Boolean(state.sections?.[id]);
+    // its buttons indented beneath it, as a dropdown's choices are
+    return [{ id: `${SECTION_PREFIX}${id}`, label, icon, section: { open } }, ...(open ? items(state, env).map((item) => ({ ...item, indent: true })) : [])];
+  });
 }
 
+/** Every section open. */
+const ALL_OPEN = Object.fromEntries(SECTIONS.map(({ id }) => [id, true]));
+
 /**
- * The most buttons any page has (the progression's chords aside), so the XR
- * panel can keep its top edge still when the page changes.
+ * The most buttons there can be (the progression's chords aside), every
+ * section open, so the XR panel can keep its top edge still as sections open
+ * and close.
  */
 const STOPPED = { playing: false, started: false, index: null, beat: 0 };
 const SAMPLE_STATE = {
@@ -473,14 +489,14 @@ const SAMPLE_STATE = {
   draft: { degree: 0, alteration: 0, type: 'maj', modifier: 'none' },
   player: STOPPED,
 };
-export const MENU_ROWS =
-  1 + Math.max(instrumentItems(SAMPLE_STATE).length + progressionItems(SAMPLE_STATE).length, videoItems(SAMPLE_STATE, {}).length);
+export const MENU_ROWS = menuItems({ ...SAMPLE_STATE, sections: ALL_OPEN }, {}).length;
 
 /**
- * Every label the buttons can show, on every page, so both panels can size
+ * Every label the buttons can show, in every section, so both panels can size
  * themselves to the widest one and not change width as values change. A
- * button that shares a row comes as { row: [{ text, span, icon, trailing }]
- * side by side, small, compact, group } instead, for the row's width: a
+ * button that shares a row, or is indented, comes as { row: [{ text, span,
+ * icon, trailing }] side by side, small, compact, group, indent } instead, for
+ * the row's width (and its indent): a
  * column needs `span` shares of it, room for an icon if it has one, and
  * `trailing` room for a chevron or arrow. (The dropdowns' choices sit two to a
  * row in less room, so they don't set it.)
@@ -525,24 +541,24 @@ export function possibleLabels(env) {
     },
   ];
   const rows = new Map(); // a row's labels, joined, -> its entry
-  for (const page of PAGES)
-    for (const v of variants)
-      for (const block of menuBlocks(menuItems({ ...base, ...v, page }, env)))
+  for (const v of variants)
+    for (const block of menuBlocks(menuItems({ ...base, ...v, sections: ALL_OPEN }, env)))
         for (const row of block.rows) {
-          if (row[0].row == null) {
+          if (row[0].row == null && !block.indent) {
             labels.add(row[0].sizeLabel ?? row[0].label);
             continue;
           }
           // a full row, as wide as it can get: short rows (the queue's last) are measured as if full
           const columns = rowSpans(row).map((span, i) => {
             const item = row[Math.min(i, row.length - 1)];
-            return { text: item.sizeLabel ?? item.label, span, icon: Boolean(item.icon), trailing: Boolean(item.dropdown || item.submenu) };
+            return { text: item.sizeLabel ?? item.label, span, icon: Boolean(item.icon), trailing: Boolean(item.dropdown || item.section) };
           });
           rows.set(JSON.stringify(columns), {
             row: columns,
             small: Boolean(row[0].small),
             compact: Boolean(row[0].compact),
             group: block.group != null,
+            indent: block.indent,
           });
         }
   return [...labels, ...rows.values()];

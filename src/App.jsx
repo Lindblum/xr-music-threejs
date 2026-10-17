@@ -19,11 +19,11 @@ import {
   XR_VIEWS,
   MENU_ROWS,
   availableViews,
-  PAGE_PREFIX,
+  SECTION_PREFIX,
   PICK_PREFIX,
   cycle,
   menuItems,
-  menuTitle,
+  MENU_TITLE,
   dropdownChoices,
   menuBlocks,
   rowSpans,
@@ -100,7 +100,7 @@ function useMusicState() {
   const [playOnSelect, setPlayOnSelect] = useState(saved.playOnSelect); // played on selecting a chord: 'off' | 'root' | 'chord'
   const [background, setBackground] = useState(saved.background); // 'solid' | 'skybox' | 'passthrough'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
-  const [page, setPage] = useState('main'); // the submenu showing, see menu.js
+  const [sections, setSections] = useState({ music: true }); // the menu's sections open: id -> true (see menu.js)
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
   const [bpm, setBpm] = useState(saved.bpm);
   const [beatsPerMeasure, setBeatsPerMeasure] = useState(saved.beatsPerMeasure);
@@ -147,8 +147,8 @@ function useMusicState() {
       clearEffects: () => setEffects(DEFAULT_SETTINGS.effects),
       toggleVelocity: () => setVelocity((v) => !v),
       toggleMenu: () => setMenuOpen((v) => !v),
-      setPage: (p) => {
-        setPage(p);
+      toggleSection: (id) => {
+        setSections((s) => ({ ...s, [id]: !s[id] }));
         setDropdown(null);
       },
       toggleDropdown: (id) => setDropdown((d) => (d === id ? null : id)),
@@ -193,7 +193,7 @@ function useMusicState() {
     }),
     [],
   );
-  const state = { instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
+  const state = { instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, background, menuOpen, sections, dropdown, bpm, beatsPerMeasure, progression, draft };
   return [state, actions, { effectAmounts, slideEffect }];
 }
 
@@ -283,9 +283,9 @@ function Label({ text }) {
   );
 }
 
-/** What a button's right edge shows: an arrow to a submenu, or a dropdown's chevron. */
+/** What a button's right edge shows: a section's or a dropdown's chevron. */
 function trailingIcon(item) {
-  if (item.submenu) return 'forward';
+  if (item.section) return item.section.open ? 'dropdownOpen' : 'dropdown';
   if (item.dropdown) return item.dropdown.open ? 'dropdownOpen' : 'dropdown';
   return null;
 }
@@ -457,12 +457,20 @@ function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
     <div className="menu-items">
       {menuBlocks(items).map((block, b) => {
         const rows = block.rows.map((row) => <MenuRow key={row[0].id} row={row} onSelect={onSelect} queue={queue} />);
-        return block.group ? (
+        const content = block.group ? (
           <div key={`group-${block.group}`} className="menu-group" data-group={block.group}>
             {rows}
           </div>
         ) : (
           <Fragment key={`block-${b}`}>{rows}</Fragment>
+        );
+        // an open section's buttons, set in beneath its header like a dropdown's choices
+        return block.indent ? (
+          <div key={`indent-${b}`} className="menu-indent">
+            {content}
+          </div>
+        ) : (
+          content
         );
       })}
       {/* the dragged chord, following the pointer; red where letting go removes it */}
@@ -483,13 +491,14 @@ function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
               ))}
             </div>
           );
-          const key = JSON.stringify(entry.row);
-          return entry.group ? (
-            <div key={key} className="menu-group">
-              {row}
+          const key = JSON.stringify(entry);
+          const framed = entry.group ? <div className="menu-group">{row}</div> : row;
+          return entry.indent ? (
+            <div key={key} className="menu-indent">
+              {framed}
             </div>
           ) : (
-            <Fragment key={key}>{row}</Fragment>
+            <Fragment key={key}>{framed}</Fragment>
           );
         })}
       </div>
@@ -499,22 +508,29 @@ function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
 
 /** The windowed panel: draws the shared menu model (see XRMenuPanel for XR). */
 function Hud({ menu, notes }) {
-  const toggle = () => menu.onSelect(MENU_TOGGLE);
+  // the gear, top left, opens and closes the panel; closed, the panel holds just the gear
+  const gear = (
+    <button
+      className="collapse"
+      onClick={() => menu.onSelect(MENU_TOGGLE)}
+      aria-label={menu.open ? 'Hide options' : 'Show options'}
+      aria-expanded={menu.open}
+      title="Options"
+    >
+      <Icon name="gear" />
+    </button>
+  );
   if (!menu.open) {
     return (
-      <button className="hud-gear" onClick={toggle} aria-label="Show options" title="Options">
-        <Icon name="gear" />
-      </button>
+      <aside className="hud collapsed">
+        <header>{gear}</header>
+      </aside>
     );
   }
   return (
     <aside className="hud">
       <header>
-        <button className="collapse" onClick={toggle} aria-label="Hide options">
-          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-            <path d="M3 9l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+        {gear}
         <h1>{menu.title}</h1>
       </header>
 
@@ -641,7 +657,7 @@ export default function App() {
 
   const onSelect = (id) => {
     if (id === MENU_TOGGLE) actions.toggleMenu();
-    else if (id.startsWith(PAGE_PREFIX)) actions.setPage(id.slice(PAGE_PREFIX.length));
+    else if (id.startsWith(SECTION_PREFIX)) actions.toggleSection(id.slice(SECTION_PREFIX.length));
     else if (id.startsWith(PICK_PREFIX)) {
       const [dropdownId, index] = id.slice(PICK_PREFIX.length).split(':');
       const choice = dropdownChoices(env, state)[dropdownId]?.[Number(index)];
@@ -697,7 +713,7 @@ export default function App() {
   const env = { xrSupported, passthroughAvailable, checking: !support.checked, views };
   const labels = useMemo(() => possibleLabels({ xrSupported, passthroughAvailable, views }), [xrSupported, passthroughAvailable, views]);
   const menu = {
-    title: menuTitle(state.page),
+    title: MENU_TITLE,
     rows: MENU_ROWS,
     labels,
     status,

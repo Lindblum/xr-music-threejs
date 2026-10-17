@@ -8,7 +8,8 @@ import { useGazeTarget } from './Gaze.jsx';
 // The options panel in XR. It draws the same menu model as the windowed
 // panel (title, XR status, "Name: Value" buttons, and the shared
 // open / collapsed state) onto a canvas, since WebXR can't show page
-// elements. Collapsed, it is just the gear button. Controller rays, hand
+// elements. The gear, top left, opens and closes it; closed, it is the panel
+// around the gear alone, the gear where it was. Controller rays, hand
 // pinches and gaze pick a control from where they hit the texture. A panel taller
 // than MAX_HEIGHT scrolls under its title: push the right thumbstick up or
 // down while pointing at it. A queued chord of the progression is selected by
@@ -24,10 +25,8 @@ const BUTTON_H = 62;
 const GAP = 22;
 const ICON = 44;
 const ICON_GAP = 28; // between icon and text
-const TOGGLE = 72; // collapse arrow size
-// the collapsed panel: one gear button in the open panel's top-left corner,
-// sized like the windowed one (44 px beside a 340 px panel), about 6 cm
-const GEAR = Math.round((44 / 340) * W);
+const TOGGLE = 72; // the gear button's size
+const GEAR_ICON = 40; // ...and its icon's
 const PX_M = WIDTH_M / W; // metres per canvas px
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 export const MENU_TOGGLE = 'menu:toggle';
@@ -53,7 +52,7 @@ const BUTTON_FONT = `500 34px ${FONT}`;
 const TITLE_FONT = `650 46px ${FONT}`;
 const INSET = 18; // icon from the button's left edge, text from its right
 const VALUE_GAP = 40; // at least this between a setting's name and its value
-const TRAILING = 36; // a submenu's arrow or a dropdown's chevron, at the right edge
+const TRAILING = 36; // a section's or a dropdown's chevron, at the right edge
 // a dropdown's choices: two to a row (or the dropdown's `columns`) beneath its button, indented
 const OPTION_FONT = `400 30px ${FONT}`;
 const OPTION_H = 52;
@@ -106,7 +105,7 @@ function entryWidth(entry) {
     ),
   );
   const shares = entry.row.reduce((sum, { span }) => sum + span, 0);
-  return share * shares + (entry.row.length - 1) * COL_GAP + (entry.group ? 2 * GROUP_PAD : 0);
+  return share * shares + (entry.row.length - 1) * COL_GAP + (entry.group ? 2 * GROUP_PAD : 0) + (entry.indent ? OPTION_INDENT : 0);
 }
 
 function panelWidth(title, labels) {
@@ -122,15 +121,19 @@ function panelWidth(title, labels) {
  * equal columns; an open dropdown's choices go beneath its row.
  */
 function layout(open, items, lines, panelW) {
-  if (!open) return { width: GEAR, height: GEAR, rects: [{ id: MENU_TOGGLE, x: 0, y: 0, w: GEAR, h: GEAR }], frames: [] };
-  const rects = [{ id: MENU_TOGGLE, x: PAD, y: TITLE_Y - TOGGLE / 2, w: TOGGLE, h: TOGGLE }];
+  const gear = { id: MENU_TOGGLE, x: PAD, y: TITLE_Y - TOGGLE / 2, w: TOGGLE, h: TOGGLE };
+  // closed: the panel around the gear alone, as far from its edges as it is from the open panel's corner
+  if (!open) return { width: 2 * gear.x + gear.w, height: 2 * gear.y + gear.h, rects: [gear], frames: [] };
+  const rects = [gear];
   const frames = [];
   const fullW = panelW - 2 * PAD;
   let y = TITLE_Y + 34 + lines * LINE_H + 16;
   for (const block of menuBlocks(items)) {
+    // an open section's buttons are set in beneath its header, as a dropdown's choices are
+    const indent = block.indent ? OPTION_INDENT : 0;
     const inset = block.group ? GROUP_PAD : 0;
-    const x = PAD + inset;
-    const w = fullW - 2 * inset;
+    const x = PAD + indent + inset;
+    const w = fullW - indent - 2 * inset;
     const frameTop = y;
     if (block.group) y += GROUP_PAD;
     for (const row of block.rows) {
@@ -162,7 +165,7 @@ function layout(open, items, lines, panelW) {
     }
     if (block.group) {
       const bottom = y - GAP + GROUP_PAD;
-      frames.push({ group: block.group, x: PAD, y: frameTop, w: fullW, h: bottom - frameTop });
+      frames.push({ group: block.group, x: PAD + indent, y: frameTop, w: fullW - indent, h: bottom - frameTop });
       y = bottom + GAP;
     }
   }
@@ -170,9 +173,9 @@ function layout(open, items, lines, panelW) {
   return { width: panelW, height: y - GAP + PAD, rects, frames, top: rects[1]?.y ?? 0 };
 }
 
-/** What a button's right edge shows: an arrow to a submenu, or a dropdown's chevron. */
+/** What a button's right edge shows: a section's or a dropdown's chevron. */
 function trailingIcon(item) {
-  if (item.submenu) return 'forward';
+  if (item.section) return item.section.open ? 'dropdownOpen' : 'dropdown';
   if (item.dropdown) return item.dropdown.open ? 'dropdownOpen' : 'dropdown';
   return null;
 }
@@ -265,13 +268,13 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       setScroll((s) => THREE.MathUtils.clamp(Math.min(s, maxScroll) + y * SCROLL_SPEED * Math.min(dt, 0.1), 0, maxScroll));
     }
   });
-  // the tallest page's height (rows of plain buttons, at most the scrolling height): other pages and
-  // the collapsed gear keep to its top edge, and a taller one (a long progression, an open dropdown) grows downward
+  // the tallest the buttons get, every section open (rows of plain buttons, at most the scrolling height): fewer
+  // and the collapsed gear keep to its top edge, and more (a long progression, an open dropdown) grow downward
   const openHeight = useMemo(
     () => Math.min(layout(true, Array.from({ length: rows ?? items.length }, (_, i) => ({ id: `row-${i}` })), lines, panelW).height, MAX_HEIGHT),
     [rows, items.length, lines, panelW],
   );
-  // the tallest page's edges in the group's metres, for docking it against things (see Grab.jsx)
+  // that tallest panel's edges in the group's metres, for docking it against things (see Grab.jsx)
   const bounds = useMemo(() => {
     const top = (openHeight / 2) * PX_M;
     return { left: (-panelW / 2) * PX_M, right: (panelW / 2) * PX_M, top, bottom: top - Math.min(openHeight, MAX_HEIGHT) * PX_M };
@@ -297,29 +300,22 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     const redraw = () => setIconsLoaded((n) => n + 1);
     ctx.clearRect(0, 0, width, height);
 
-    if (!open) {
-      // collapsed: only the gear button, styled like the windowed one
-      const r = rects[0];
-      const hot = hovered === MENU_TOGGLE;
-      roundRect(ctx, r.x + 2, r.y + 2, r.w - 4, r.h - 4, 34);
-      ctx.fillStyle = hot ? 'rgba(40, 46, 66, 0.95)' : 'rgba(12, 16, 28, 0.9)';
-      ctx.fill();
-      ctx.strokeStyle = hot ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.18)';
-      ctx.lineWidth = hot ? 4 : 3;
-      ctx.stroke();
-      const img = iconImage('gear', redraw);
-      const size = r.w * (18 / 44);
-      if (img.complete && img.naturalWidth) ctx.drawImage(img, r.x + (r.w - size) / 2, r.y + (r.h - size) / 2, size, size);
-      texture.needsUpdate = true;
-      return;
-    }
-
+    // the panel, and the gear in its top-left corner: all there is of it while it's closed
     roundRect(ctx, 4, 4, width - 8, height - 8, 40);
     ctx.fillStyle = 'rgba(12, 16, 28, 0.9)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
     ctx.lineWidth = 4;
     ctx.stroke();
+    const gear = rects[0];
+    drawButtonFrame(ctx, gear, { hot: hovered === MENU_TOGGLE });
+    const gearIcon = iconImage('gear', redraw);
+    if (gearIcon.complete && gearIcon.naturalWidth)
+      ctx.drawImage(gearIcon, gear.x + (gear.w - GEAR_ICON) / 2, gear.y + (gear.h - GEAR_ICON) / 2, GEAR_ICON, GEAR_ICON);
+    if (!open) {
+      texture.needsUpdate = true;
+      return;
+    }
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#ffffff';
@@ -330,19 +326,6 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       ctx.font = `400 26px ${FONT}`;
       centredText(ctx, fit(ctx, status, width - 2 * PAD), PAD, TITLE_Y + 34 + LINE_H / 2);
     }
-
-    // collapse arrow, top left, in the title row
-    const toggle = rects[0];
-    drawButtonFrame(ctx, toggle, { hot: hovered === MENU_TOGGLE });
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 6;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(toggle.x + toggle.w * 0.32, toggle.y + toggle.h * 0.58);
-    ctx.lineTo(toggle.x + toggle.w * 0.5, toggle.y + toggle.h * 0.4);
-    ctx.lineTo(toggle.x + toggle.w * 0.68, toggle.y + toggle.h * 0.58);
-    ctx.stroke();
 
     // the buttons, scrolled and clipped below the title
     ctx.save();

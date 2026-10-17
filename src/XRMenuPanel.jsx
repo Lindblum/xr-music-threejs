@@ -345,10 +345,11 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     for (const r of rects) {
       if (r.id === MENU_TOGGLE) continue;
       if (r.option) {
-        // a choice in an open dropdown: smaller, the current one lit and ticked
+        // a choice in an open dropdown: smaller, the current one lit and ticked, one this device can't have dimmed
         const { option } = r;
         roundRect(ctx, r.x, r.y, r.w, r.h, 14);
-        const hot = option.id === hovered;
+        const hot = option.id === hovered && !option.disabled;
+        ctx.globalAlpha = option.disabled ? 0.35 : 1;
         ctx.fillStyle = hot ? 'rgba(255, 255, 255, 0.24)' : option.selected ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.05)';
         ctx.fill();
         ctx.strokeStyle = hot || option.selected ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.12)';
@@ -368,6 +369,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
           const check = iconImage('check', redraw);
           if (check.complete && check.naturalWidth) ctx.drawImage(check, r.x + r.w - INSET - CHECK, r.y + (r.h - CHECK) / 2, CHECK, CHECK);
         }
+        ctx.globalAlpha = 1;
         continue;
       }
       const { item } = r;
@@ -485,7 +487,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     if (open && (py < clipTop || py > clipBottom)) return null;
     if (open) py += scrolled;
     const r = rects.find(inside);
-    return r && !r.item?.disabled ? r.id : null;
+    return r && !r.item?.disabled && !r.option?.disabled ? r.id : null;
   };
   useGazeTarget(mesh, onSelect, setGazeKey, pick);
 

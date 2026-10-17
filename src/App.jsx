@@ -18,7 +18,6 @@ import {
   DROPDOWNS,
   XR_VIEWS,
   MENU_ROWS,
-  availableViews,
   SECTION_PREFIX,
   PICK_PREFIX,
   cycle,
@@ -406,6 +405,9 @@ function MenuOptions({ dropdown, onSelect }) {
           className={`menu-option${option.selected ? ' selected' : ''}`}
           role="option"
           aria-selected={option.selected}
+          aria-disabled={option.disabled || undefined}
+          disabled={option.disabled}
+          title={option.title}
           onClick={() => onSelect(option.id)}
         >
           {option.icon && <Icon name={option.icon} />}
@@ -599,7 +601,6 @@ export default function App() {
   const phone = useMemo(isPhone, []);
   const headset = useMemo(isHeadsetBrowser, []);
   const passthroughAvailable = Boolean(support.ar) || phone;
-  const views = useMemo(() => availableViews({ phone, headset, xrSupported }), [phone, headset, xrSupported]);
   const [screenView, setScreenView] = useState('normal'); // outside XR: 'normal' | 'sbs' | 'interlaced'
   const [phoneStereo, setPhoneStereo] = useState(true); // phone XR: two lens-corrected eyes
   const [handheld, setHandheld] = useState(false); // the motion-sensor view is showing (phones without AR)
@@ -661,7 +662,7 @@ export default function App() {
     else if (id.startsWith(PICK_PREFIX)) {
       const [dropdownId, index] = id.slice(PICK_PREFIX.length).split(':');
       const choice = dropdownChoices(env, state)[dropdownId]?.[Number(index)];
-      if (choice === undefined) return;
+      if (choice == null) return; // not a choice, or one this device can't have
       if (dropdownId === 'view') {
         actions.closeDropdown();
         selectView(choice);
@@ -710,8 +711,8 @@ export default function App() {
       : phone
         ? `XR: phone AR, tracked, ${phoneStereo ? 'stereo' : 'mono'}`
         : `XR: headset ${sessionMode === 'immersive-ar' ? 'AR' : 'VR'}`;
-  const env = { xrSupported, passthroughAvailable, checking: !support.checked, views };
-  const labels = useMemo(() => possibleLabels({ xrSupported, passthroughAvailable, views }), [xrSupported, passthroughAvailable, views]);
+  const env = { xrSupported, passthroughAvailable, checking: !support.checked, phone, headset };
+  const labels = useMemo(() => possibleLabels({ xrSupported, passthroughAvailable, phone, headset }), [xrSupported, passthroughAvailable, phone, headset]);
   const menu = {
     title: MENU_TITLE,
     rows: MENU_ROWS,

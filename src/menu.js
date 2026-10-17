@@ -31,8 +31,9 @@ const BACKGROUND_LABELS = { solid: 'Solid', skybox: 'Skybox', passthrough: 'Pass
 /** The Vite + React starter's page colour, used for the Solid background, as in the 4D viewer. */
 export const SOLID_BACKGROUND = '#242424';
 
-/** The backgrounds this device can show: passthrough only where there is AR. */
-export const availableBackgrounds = (env) => BACKGROUNDS.filter((b) => b !== 'passthrough' || env.passthroughAvailable);
+/** Why this device can't show background `b` (see menuItems' `env`), or null if it can: passthrough needs AR or a camera. */
+const backgroundUnavailable = (b, env) =>
+  b === 'passthrough' && !env.passthroughAvailable ? 'Passthrough needs an AR-capable headset or a phone camera' : null;
 
 /**
  * View Mode, in list order. Normal, 3D: SBS (half side-by-side, for 3D
@@ -62,18 +63,20 @@ const VIEW_ICONS = {
 const STEREO_VIEWS = ['sbs', 'interlaced'];
 
 /**
- * The views this device can show. `env`: { phone, headset, xrSupported }. A
- * headset browser's own window can't show screen stereo usefully, so no SBS
- * or Interlaced there. Phones always get their XR views: without WebXR AR
- * they fall back to the motion sensors.
+ * Why this device can't show `view`, or null if it can. `env`: { phone,
+ * headset, xrSupported, checking }. A headset browser's own window can't show
+ * screen stereo usefully, so no SBS or Interlaced there. Phones always get
+ * their XR views: without WebXR AR they fall back to the motion sensors.
  */
-export function availableViews(env) {
-  return VIEWS.filter((view) => {
-    if (STEREO_VIEWS.includes(view)) return !env.headset;
-    if (view === 'xr') return !env.phone && env.xrSupported;
-    if (view === 'phoneAR' || view === 'phoneViewer') return env.phone;
-    return true;
-  });
+function viewUnavailable(view, env) {
+  if (STEREO_VIEWS.includes(view)) return env.headset ? "Not in a headset's own browser" : null;
+  if (view === 'xr') {
+    if (env.phone) return 'On a phone, use XR: Phone AR or XR: Phone Viewer';
+    if (env.xrSupported) return null;
+    return env.checking ? 'Checking for WebXR…' : "WebXR isn't available here. Open the page in a headset browser over HTTPS for XR.";
+  }
+  if (view === 'phoneAR' || view === 'phoneViewer') return env.phone ? null : 'Phones only';
+  return null;
 }
 
 /** The item after `current` in `list`, wrapping around; `step` -1 goes back. */
@@ -99,16 +102,24 @@ export const PICK_PREFIX = 'pick:';
  * each with `icons[i]` if given. Choosing one sends "pick:<id>:<index>".
  * Packed more than CHECKED_COLUMNS to a row (or with `checks` false), the
  * chosen one is shown by its highlight alone, without a check mark, to leave
- * its label room.
+ * its label room. `unavailable[i]`, if given, is why choice i can't be chosen
+ * here: it's shown disabled, with that as its tooltip.
  */
 const CHECKED_COLUMNS = 4;
 
-function dropdown(state, id, choices, current, icons, columns = 2, checks = columns <= CHECKED_COLUMNS) {
+function dropdown(state, id, choices, current, icons, columns = 2, checks = columns <= CHECKED_COLUMNS, unavailable = []) {
   return {
     open: state.dropdown === id,
     columns,
     checks,
-    options: choices.map((label, i) => ({ id: `${PICK_PREFIX}${id}:${i}`, label, icon: icons?.[i], selected: i === current })),
+    options: choices.map((label, i) => ({
+      id: `${PICK_PREFIX}${id}:${i}`,
+      label,
+      icon: icons?.[i],
+      selected: i === current,
+      disabled: Boolean(unavailable[i]),
+      title: unavailable[i] || undefined,
+    })),
   };
 }
 
@@ -159,8 +170,9 @@ export function dropdownChoices(env, state) {
     alteration: ALTERATIONS.map((a) => a.id),
     quality: CHORD_TYPES.map((t) => t.id),
     modifier: CHORD_MODIFIERS.map((m) => m.id),
-    background: availableBackgrounds(env),
-    view: env.views ?? ['normal'],
+    // every one, in list order; null where this device can't have it
+    background: BACKGROUNDS.map((b) => (backgroundUnavailable(b, env) ? null : b)),
+    view: VIEWS.map((v) => (viewUnavailable(v, env) ? null : v)),
   };
 }
 
@@ -396,21 +408,23 @@ export function rowSpans(row) {
   return spans;
 }
 
+/** The Video section: every background and view, those this device can't have shown disabled, with why. */
 function videoItems(state, env) {
-  const backgrounds = availableBackgrounds(env);
-  const views = env.views ?? ['normal'];
+  const columns = 2;
   return [
     {
       id: 'background',
       label: `Background: ${BACKGROUND_LABELS[state.background]}`,
       icon: state.background,
-      title: env.passthroughAvailable ? undefined : 'Passthrough needs an AR-capable headset or a phone camera',
       dropdown: dropdown(
         state,
         'background',
-        backgrounds.map((b) => BACKGROUND_LABELS[b]),
-        backgrounds.indexOf(state.background),
-        backgrounds,
+        BACKGROUNDS.map((b) => BACKGROUND_LABELS[b]),
+        BACKGROUNDS.indexOf(state.background),
+        BACKGROUNDS,
+        columns,
+        undefined,
+        BACKGROUNDS.map((b) => backgroundUnavailable(b, env)),
       ),
     },
     {
@@ -420,15 +434,13 @@ function videoItems(state, env) {
       dropdown: dropdown(
         state,
         'view',
-        views.map((v) => VIEW_LABELS[v]),
-        views.indexOf(state.view),
-        views.map((v) => VIEW_ICONS[v]),
+        VIEWS.map((v) => VIEW_LABELS[v]),
+        VIEWS.indexOf(state.view),
+        VIEWS.map((v) => VIEW_ICONS[v]),
+        columns,
+        undefined,
+        VIEWS.map((v) => viewUnavailable(v, env)),
       ),
-      disabled: views.length < 2,
-      title:
-        !env.xrSupported && !env.checking
-          ? "WebXR isn't available here. Open the page in a headset browser over HTTPS for XR."
-          : undefined,
     },
   ];
 }
@@ -457,7 +469,7 @@ const SECTIONS = [
  * buttons sharing a row; `compact`: just the label, centred; `current`: lit,
  * as the progression's playing chord: in `dim`, split into `beats`, with
  * beat `beat` in `color`, if it has them.
- * `env`: { xrSupported, passthroughAvailable, checking, views (available) }.
+ * `env`: { xrSupported, passthroughAvailable, checking, phone, headset }.
  */
 export function menuItems(state, env) {
   return SECTIONS.flatMap(({ id, label, icon, items }) => {

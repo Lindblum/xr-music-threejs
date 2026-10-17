@@ -210,7 +210,6 @@ function instrumentItems(state) {
       title: 'Notes are as loud as the controller, pick or mouse is fast as it strikes them',
       row: 'timing',
       small: true,
-      span: 1.25, // the longer label
     },
     {
       id: 'tuning',
@@ -235,7 +234,7 @@ export const QUEUE_COLUMNS = 4;
 /**
  * The Music section's second part, the progression: the transport and the tempo, a stock progression to
  * start from, the key and scale, then the chord being built (a degree's
- * triad, then on one row its root's alteration, its quality and modifier),
+ * triad and its root's alteration on one row, then its quality and modifier),
  * Add Chord, Clear and Play on Select on one row, then the queue: the progression's chords, four to a
  * row in a framed group. A queued chord (`queueIndex`) is dragged to reorder
  * it, and dragged out of the panel or double-clicked to remove it (see the
@@ -249,6 +248,7 @@ function progressionItems(state) {
   const quality = CHORD_TYPES.findIndex((t) => t.id === draft.type);
   const modifier = CHORD_MODIFIERS.findIndex((m) => m.id === draft.modifier);
   const queue = { group: 'queue', compact: true, cols: QUEUE_COLUMNS };
+  const root = { row: 'root', small: true };
   const shape = { row: 'shape', small: true };
   const transport = { row: 'transport', small: true };
   const tempo = { row: 'tempo', small: true };
@@ -262,7 +262,6 @@ function progressionItems(state) {
       title: 'Shortcut: P',
       disabled: !progression.length,
       ...transport,
-      span: 2,
     },
     { id: 'stop', label: 'Stop', icon: 'stop', disabled: !player.started, ...transport },
     {
@@ -301,22 +300,23 @@ function progressionItems(state) {
       icon: 'scale',
       title: 'Shortcut: S',
       ...keyScale,
-      span: 2,
       dropdown: dropdown(state, 'scale', SCALES.map((sc) => sc.name), SCALES.indexOf(state.scale)),
     },
     {
       id: 'degree',
       label: `Degree Triad: ${degree < 0 ? '—' : degrees[degree].label}`,
       icon: 'scale',
+      ...root,
       dropdown: dropdown(state, 'degree', degrees.map((d) => d.label), degree, undefined, 4),
     },
-    // the chord's shape, side by side without icons
+    // beside it, the root flattened or sharpened
     {
       id: 'alteration',
       label: `Alteration: ${ALTERATIONS[alteration].name}`,
-      ...shape,
+      ...root,
       dropdown: dropdown(state, 'alteration', ALTERATIONS.map((a) => a.name), alteration, undefined, ALTERATIONS.length),
     },
+    // the chord's shape, side by side without icons
     {
       id: 'quality',
       label: `Quality: ${CHORD_TYPES[quality].name}`,

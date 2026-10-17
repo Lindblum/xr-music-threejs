@@ -150,8 +150,6 @@ const triangle = wave('M2.5 12 7.25 5l9.5 14 4.75-7');
 const sawtooth = wave('M2.5 16.5 12 7.5v9l9.5-9v9');
 const square = wave('M2.5 12V6.5H12v11h9.5V12');
 const sample = wave('M3 11v2M6 9v6M9 5v14M12 7.5v9M15 9.5v5M18 10.75v2.5M21 11.5v1');
-// a filter's response: flat, a resonant peak, then rolling off
-const filter = wave('M2.5 15.5h6c1.75 0 2-8.5 3.75-8.5s2 8.5 4 10.5c1.25 1.25 3 1.5 5.25 1.5');
 
 const ICONS = {
   instrument: recolour(music),
@@ -165,7 +163,6 @@ const ICONS = {
   tuning: recolour(sliders),
   echo,
   echoOff,
-  filter,
   video,
   // Back, and its mirror marking a button that opens a submenu
   back: recolour(arrowLeft),

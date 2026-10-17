@@ -6,8 +6,12 @@
 // raised or lowered by semitones while it sounds. Notes can be quantized:
 // held back to the next point of a beat grid. The echo repeats once a beat.
 // A note's velocity (0..1, how hard it was struck) sets its loudness. Every
-// voice passes through the filter (Off, or a wah worked by the FilterFrame's
-// slider) before the echo, as a pedal would sit ahead of a delay.
+// voice passes through a chain of effects, in a guitar pedalboard's order
+// (see EFFECTS): dynamics and filters first, then the drives, the tone,
+// modulation, the volume, and last the echo and reverb, so their tails carry
+// everything before them and ring on past the volume. Each effect but the
+// volume can be switched in or out, and has a slider (see the FilterFrame).
+// The octave below is a second copy of each note, at half the pitch.
 
 import { detectPitch } from './pitch.js';
 import { frequencyToNote, noteToFrequency } from './music.js';
@@ -40,6 +44,10 @@ export const INSTRUMENTS = [
   'Viola',
   'Strings',
   'Xylophone',
+  'Guitar',
+  'Classical Guitar',
+  'Nylon Guitar',
+  'Heavy Guitar',
   'Bass Guitar',
 ];
 
@@ -51,16 +59,64 @@ const QUANTIZE_LATE = 0.04; // seconds: a note this soon after a grid point play
 const QUANTIZED_SYNTH_MIN = 0.12; // seconds: a quantized synth note let go before it starts still sounds this long
 const MIN_VELOCITY = 0.2; // the softest note is struck at least this hard, so it's never silent
 const VELOCITY_CURVE = 1.6; // loudness rises faster than velocity, so soft and hard sound evenly spaced
-const FILTER_FADE = 0.02; // seconds: the time constant switching filters fades with
+const EFFECT_FADE = 0.02; // seconds: the time constant switching an effect in or out fades with
+const SLIDE = 0.02; // ...and a slider's moves glide with
 const WAH_LOW = 350; // Hz: the wah's resonance heel down (slider at 0)...
 const WAH_HIGH = 2500; // ...and toe down (at 1)
 const WAH_Q = 6;
 const WAH_LEVEL = 0.7; // the resonant peak is loud: the wah is mixed in a little lower
+const AUTO_WAH_RANGE = [300, 3000]; // Hz: the auto-wah's resonance, quiet to loud
+const AUTO_WAH_SENSE = [2, 40]; // how far a note's loudness opens it, slider at 0 and at 1
+const AUTO_WAH_EVERY = 15; // ms between readings of the loudness
+const FUZZ_DRIVE = [4, 300]; // the gain into the fuzz's clipping, slider at 0 and at 1
+const FUZZ_LEVEL = 0.22; // out of it: a clipped wave is as loud as it gets, whatever the drive
+const FUZZ_TONE = 3500; // Hz: the fuzz's fizz rolled off above this
+const OVERDRIVE_DRIVE = [1, 12];
+const OVERDRIVE_LEVEL = 0.45;
+const OVERDRIVE_TONE = 6000;
+const DISTORTION_DRIVE = [1.5, 40];
+const DISTORTION_LEVEL = 0.3;
+const DISTORTION_TONE = 5000;
+const TONE_RANGE = [600, 12000]; // Hz: the tone's cutoff, dark to bright
+const CHORUS_DELAY = 0.02; // seconds
+const CHORUS_RATE = 0.8; // Hz
+const CHORUS_DEPTH = [0.0005, 0.006]; // seconds the delay sways either way
+const PHASER_RATE = [0.1, 4]; // Hz, slider at 0 and at 1
+const PHASER_CENTRE = 800; // Hz the notches sweep about...
+const PHASER_SWEEP = 600; // ...this far either way
+const FLANGER_DELAY = 0.003;
+const FLANGER_RATE = 0.25;
+const FLANGER_DEPTH = [0.0003, 0.0025];
+const FLANGER_FEEDBACK = 0.6;
+const VIBRATO_DELAY = 0.006;
+const VIBRATO_RATE = 5.5;
+const VIBRATO_DEPTH = [0.0002, 0.003];
+const TREMOLO_PER_BEAT = 2; // pulses a beat, at the progression's tempo
+const VOLUME_TOP = 1.6; // the volume's gain at the slider's top: its default, 0.8, is about unity
+const REVERB_SECONDS = 2.5;
+const COMP_MAKEUP = 12; // dB the compressor makes up at the slider's top
 
-/** The filters, in the menu's order. */
-export const FILTERS = [
-  { id: 'off', name: 'Off' },
-  { id: 'wah', name: 'Wah' },
+/**
+ * The effects, in signal-chain order: each one's id, name, whether it can be
+ * switched out (`toggle`), and its slider's starting place (0..1).
+ */
+export const EFFECTS = [
+  { id: 'comp', name: 'Comp', toggle: true, amount: 0.5 },
+  { id: 'octave', name: 'Octave', toggle: true, amount: 0.6 },
+  { id: 'autoWah', name: 'Auto-Wah', toggle: true, amount: 0.5 },
+  { id: 'wah', name: 'Wah', toggle: true, amount: 0.5 },
+  { id: 'fuzz', name: 'Fuzz', toggle: true, amount: 0.5 },
+  { id: 'overdrive', name: 'Overdrive', toggle: true, amount: 0.5 },
+  { id: 'distortion', name: 'Distortion', toggle: true, amount: 0.5 },
+  { id: 'tone', name: 'Tone', toggle: true, amount: 0.6 },
+  { id: 'chorus', name: 'Chorus', toggle: true, amount: 0.5 },
+  { id: 'phaser', name: 'Phaser', toggle: true, amount: 0.4 },
+  { id: 'flanger', name: 'Flanger', toggle: true, amount: 0.5 },
+  { id: 'vibrato', name: 'Vibrato', toggle: true, amount: 0.4 },
+  { id: 'tremolo', name: 'Tremolo', toggle: true, amount: 0.6 },
+  { id: 'volume', name: 'Volume', toggle: false, amount: 0.8 },
+  { id: 'echo', name: 'Echo', toggle: true, amount: 0.6 },
+  { id: 'reverb', name: 'Reverb', toggle: true, amount: 0.35 },
 ];
 
 /** A note's gain from its velocity (0..1): 1 at full velocity, about -22 dB at none. */
@@ -71,24 +127,22 @@ const velocityGain = (velocity) => (MIN_VELOCITY + (1 - MIN_VELOCITY) * Math.min
  * length, and how many steps a beat is quantized into (0: not quantized).
  */
 const grid = { origin: 0, beat: 0.6, division: 0 };
-let echoTime = grid.beat;
 
 let ctx = null;
 let master;
-let echoSend;
+let bus; // every voice feeds this: the effects chain's input
+let octaveBus; // every voice's octave below feeds this, into the octave's stage
 let echoDelay;
-let bus; // every voice feeds this: the filter's input
-let dry; // bus -> out, unfiltered, while the filter is off
-let wet; // bus -> wah -> out, while it's on
-let wah;
-let filter = 'off';
-let filterAmount = 0.5; // the slider, 0..1
+let tremoloLfo;
+const stages = {}; // effect id -> { dry, wet, level, parallel, apply(amount, t), onSwitch?(on) }, once the context exists
+const effectOn = Object.fromEntries(EFFECTS.filter((e) => e.toggle).map((e) => [e.id, false])); // the switchable effects, in or out
+const effectAmount = Object.fromEntries(EFFECTS.map((e) => [e.id, e.amount])); // each slider, 0..1
 const SYNTH_RELEASE = 0.03; // seconds: a released synth fades with this time constant...
 const SYNTH_STOP = 0.3; // ...and its oscillator stops this long after
 const samples = new Map(); // name -> Promise<{ buffer, note, gain }>
 const sources = [];
-const synths = new Map(); // voice -> { osc, gain }, while held
-const ringing = new Map(); // voice -> { source, rate } for its latest sample, while it rings
+const synths = new Map(); // voice -> { osc, gain, sub, subGain }, while held
+const ringing = new Map(); // voice -> { source, rate, sub } for its latest sample, while it rings
 const bends = new Map(); // voice -> semitones it is bent by
 
 function context() {
@@ -96,51 +150,272 @@ function context() {
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   master = ctx.createGain();
   master.connect(ctx.destination);
-  // echo: a delay feeding back into itself, mixed into the output
-  echoSend = ctx.createGain();
-  echoSend.gain.value = 0;
-  echoDelay = ctx.createDelay(MAX_ECHO);
-  echoDelay.delayTime.value = echoTime;
-  const feedback = ctx.createGain();
-  feedback.gain.value = ECHO_FEEDBACK;
-  echoSend.connect(echoDelay);
-  echoDelay.connect(feedback);
-  feedback.connect(echoDelay);
-  echoDelay.connect(master);
-  // the filter: the voices' bus through the wah or around it, then out to the output and the echo
+  // the effects: the voices' bus through each in turn, then out
   bus = ctx.createGain();
-  const out = ctx.createGain();
-  out.connect(master);
-  out.connect(echoSend);
-  dry = ctx.createGain();
-  wet = ctx.createGain();
-  wah = ctx.createBiquadFilter();
-  wah.type = 'lowpass';
-  wah.Q.value = WAH_Q;
-  wah.frequency.value = wahFrequency(filterAmount);
-  bus.connect(dry).connect(out);
-  bus.connect(wah).connect(wet).connect(out);
-  dry.gain.value = filter === 'off' ? 1 : 0;
-  wet.gain.value = filter === 'wah' ? WAH_LEVEL : 0;
+  octaveBus = ctx.createGain();
+  let chain = bus;
+  for (const { id } of EFFECTS) chain = buildStage(id, chain);
+  chain.connect(master);
   return ctx;
 }
 
-/** The wah's resonance for the slider at `amount` (0..1): rising evenly in pitch, heel to toe. */
-const wahFrequency = (amount) => WAH_LOW * (WAH_HIGH / WAH_LOW) ** Math.min(Math.max(amount, 0), 1);
+/** A slider (0..1) mapped onto a range, rising evenly in ratio: for frequencies and gains. */
+const sweep = ([low, high], amount) => low * (high / low) ** Math.min(Math.max(amount, 0), 1);
 
-/** Switches the filter every voice passes through: an id from FILTERS. */
-export function setFilter(id) {
-  filter = id;
-  if (!ctx) return;
-  const t = ctx.currentTime;
-  dry.gain.setTargetAtTime(id === 'off' ? 1 : 0, t, FILTER_FADE);
-  wet.gain.setTargetAtTime(id === 'wah' ? WAH_LEVEL : 0, t, FILTER_FADE);
+/** ...or evenly in steps: for depths. */
+const lerp = ([low, high], amount) => low + (high - low) * Math.min(Math.max(amount, 0), 1);
+
+/** A wave-shaping curve over -1..1, `shape(x)` at each point. */
+function curve(shape) {
+  const points = new Float32Array(2048);
+  for (let i = 0; i < points.length; i++) points[i] = shape((i / (points.length - 1)) * 2 - 1);
+  return points;
 }
 
-/** Sets the filter's slider (0..1): for the wah, how far the pedal is rocked, heel to toe. */
-export function setFilterAmount(amount) {
-  filterAmount = amount;
-  if (ctx) wah.frequency.setTargetAtTime(wahFrequency(amount), ctx.currentTime, 0.02);
+/** Fuzz: clipped hard, and lopsided (it squares off sooner on the way up), like a germanium fuzz box. */
+const FUZZ_CURVE = curve((x) => Math.min(Math.max(x * 1.5, -1), 0.7));
+/** Overdrive: a gentle, lopsided rounding, like an overdriven valve. */
+const OVERDRIVE_CURVE = curve((x) => (x >= 0 ? Math.tanh(1.8 * x) : Math.tanh(1.3 * x)));
+/** Distortion: rounded off firmly, louder notes more so. */
+const DISTORTION_CURVE = curve((x) => Math.tanh(3 * x));
+
+/** A low-frequency oscillator at `rate` Hz, through a gain (its depth) for connecting to a parameter. */
+function lfo(rate, depth) {
+  const osc = ctx.createOscillator();
+  osc.frequency.value = rate;
+  const gain = ctx.createGain();
+  gain.gain.value = depth;
+  osc.connect(gain);
+  osc.start();
+  return { osc, depth: gain };
+}
+
+/** A reverb's impulse: stereo noise dying away over `seconds`. */
+function impulse(seconds) {
+  const length = Math.ceil(ctx.sampleRate * seconds);
+  const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** 3;
+  }
+  return buffer;
+}
+
+/** Drive into a wave shaper, then a tone filter to tame the fizz: fuzz, overdrive and distortion. */
+function driven(input, wet, id, range, shape, tone) {
+  const drive = ctx.createGain();
+  drive.gain.value = sweep(range, effectAmount[id]);
+  const shaper = ctx.createWaveShaper();
+  shaper.curve = shape;
+  shaper.oversample = '4x';
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = tone;
+  input.connect(drive).connect(shaper).connect(filter).connect(wet);
+  return (amount, t) => drive.gain.setTargetAtTime(sweep(range, amount), t, SLIDE);
+}
+
+/** A delay swayed by an LFO, from `input` to `wet`: chorus, flanger and vibrato. Returns the LFO. */
+function swayed(input, wet, base, rate, depth, feedback = 0) {
+  const delay = ctx.createDelay(0.05);
+  delay.delayTime.value = base;
+  const sway = lfo(rate, depth);
+  sway.depth.connect(delay.delayTime);
+  input.connect(delay).connect(wet);
+  if (feedback) {
+    const back = ctx.createGain();
+    back.gain.value = feedback;
+    delay.connect(back).connect(delay);
+  }
+  return sway;
+}
+
+/**
+ * Each effect's wiring, from the stage's `input` to its `wet` gain: returns
+ * { apply(amount, t) } for its slider, and `level` (its wet gain while in),
+ * `parallel` (whether the dry signal carries on beside it while it's in, as
+ * for a mix), `onSwitch(on)` if it does something as it's switched.
+ */
+const BUILDERS = {
+  comp(input, wet) {
+    const comp = ctx.createDynamicsCompressor();
+    comp.knee.value = 10;
+    comp.attack.value = 0.005;
+    comp.release.value = 0.2;
+    const makeup = ctx.createGain();
+    input.connect(comp).connect(makeup).connect(wet);
+    const apply = (amount, t) => {
+      comp.threshold.setTargetAtTime(-6 - 44 * amount, t, SLIDE);
+      comp.ratio.setTargetAtTime(2 + 10 * amount, t, SLIDE);
+      makeup.gain.setTargetAtTime(10 ** ((COMP_MAKEUP * amount) / 20), t, SLIDE);
+    };
+    apply(effectAmount.comp, 0);
+    return { apply };
+  },
+  // the octave below is played by each voice itself (see playSample, noteOn); here it joins the chain
+  octave(input, wet) {
+    octaveBus.gain.value = effectAmount.octave;
+    octaveBus.connect(wet);
+    return { parallel: true, apply: (amount, t) => octaveBus.gain.setTargetAtTime(amount, t, SLIDE) };
+  },
+  // a resonant filter opened by how loud the notes are, read off an analyser a few dozen times a second
+  autoWah(input, wet) {
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = WAH_Q;
+    filter.frequency.value = AUTO_WAH_RANGE[0];
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    input.connect(analyser);
+    input.connect(filter).connect(wet);
+    const data = new Float32Array(analyser.fftSize);
+    let envelope = 0;
+    let timer = null;
+    const follow = () => {
+      analyser.getFloatTimeDomainData(data);
+      let sum = 0;
+      for (const v of data) sum += v * v;
+      const rms = Math.sqrt(sum / data.length);
+      // quick to open, slower to close, as a note's attack and decay
+      envelope += (rms - envelope) * (rms > envelope ? 0.6 : 0.12);
+      const open = Math.min(envelope * sweep(AUTO_WAH_SENSE, effectAmount.autoWah), 1);
+      filter.frequency.setTargetAtTime(sweep(AUTO_WAH_RANGE, open), ctx.currentTime, 0.01);
+    };
+    const onSwitch = (on) => {
+      clearInterval(timer);
+      timer = on ? setInterval(follow, AUTO_WAH_EVERY) : null;
+    };
+    return { level: WAH_LEVEL, apply: () => {}, onSwitch };
+  },
+  wah(input, wet) {
+    const wah = ctx.createBiquadFilter();
+    wah.type = 'lowpass';
+    wah.Q.value = WAH_Q;
+    wah.frequency.value = sweep([WAH_LOW, WAH_HIGH], effectAmount.wah);
+    input.connect(wah).connect(wet);
+    return { level: WAH_LEVEL, apply: (amount, t) => wah.frequency.setTargetAtTime(sweep([WAH_LOW, WAH_HIGH], amount), t, SLIDE) };
+  },
+  fuzz: (input, wet) => ({ level: FUZZ_LEVEL, apply: driven(input, wet, 'fuzz', FUZZ_DRIVE, FUZZ_CURVE, FUZZ_TONE) }),
+  overdrive: (input, wet) => ({ level: OVERDRIVE_LEVEL, apply: driven(input, wet, 'overdrive', OVERDRIVE_DRIVE, OVERDRIVE_CURVE, OVERDRIVE_TONE) }),
+  distortion: (input, wet) => ({ level: DISTORTION_LEVEL, apply: driven(input, wet, 'distortion', DISTORTION_DRIVE, DISTORTION_CURVE, DISTORTION_TONE) }),
+  tone(input, wet) {
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = 0.7;
+    filter.frequency.value = sweep(TONE_RANGE, effectAmount.tone);
+    input.connect(filter).connect(wet);
+    return { apply: (amount, t) => filter.frequency.setTargetAtTime(sweep(TONE_RANGE, amount), t, SLIDE) };
+  },
+  chorus(input, wet) {
+    const sway = swayed(input, wet, CHORUS_DELAY, CHORUS_RATE, lerp(CHORUS_DEPTH, effectAmount.chorus));
+    return { level: 0.8, parallel: true, apply: (amount, t) => sway.depth.gain.setTargetAtTime(lerp(CHORUS_DEPTH, amount), t, SLIDE) };
+  },
+  // four all-pass filters swept together: summed with the dry signal, their phase shifts cut moving notches
+  phaser(input, wet) {
+    const sweepLfo = lfo(sweep(PHASER_RATE, effectAmount.phaser), PHASER_SWEEP);
+    let node = input;
+    for (let i = 0; i < 4; i++) {
+      const pass = ctx.createBiquadFilter();
+      pass.type = 'allpass';
+      pass.frequency.value = PHASER_CENTRE;
+      pass.Q.value = 0.7;
+      sweepLfo.depth.connect(pass.frequency);
+      node = node.connect(pass);
+    }
+    node.connect(wet);
+    return { parallel: true, apply: (amount, t) => sweepLfo.osc.frequency.setTargetAtTime(sweep(PHASER_RATE, amount), t, SLIDE) };
+  },
+  flanger(input, wet) {
+    const sway = swayed(input, wet, FLANGER_DELAY, FLANGER_RATE, lerp(FLANGER_DEPTH, effectAmount.flanger), FLANGER_FEEDBACK);
+    return { level: 0.7, parallel: true, apply: (amount, t) => sway.depth.gain.setTargetAtTime(lerp(FLANGER_DEPTH, amount), t, SLIDE) };
+  },
+  vibrato(input, wet) {
+    const sway = swayed(input, wet, VIBRATO_DELAY, VIBRATO_RATE, lerp(VIBRATO_DEPTH, effectAmount.vibrato));
+    return { apply: (amount, t) => sway.depth.gain.setTargetAtTime(lerp(VIBRATO_DEPTH, amount), t, SLIDE) };
+  },
+  // a gain pulsing in time with the beat: swinging between 1 and 1 − depth
+  tremolo(input, wet) {
+    const pulseGain = ctx.createGain();
+    const pulse = lfo(TREMOLO_PER_BEAT / grid.beat, 0);
+    tremoloLfo = pulse.osc;
+    pulse.depth.connect(pulseGain.gain);
+    input.connect(pulseGain).connect(wet);
+    const apply = (amount, t) => {
+      pulseGain.gain.setTargetAtTime(1 - amount / 2, t, SLIDE);
+      pulse.depth.gain.setTargetAtTime(amount / 2, t, SLIDE);
+    };
+    apply(effectAmount.tremolo, 0);
+    return { apply };
+  },
+  // repeats once a beat, each quieter: the slider is how loud they come in
+  echo(input, wet) {
+    const send = ctx.createGain();
+    send.gain.value = effectAmount.echo;
+    echoDelay = ctx.createDelay(MAX_ECHO);
+    echoDelay.delayTime.value = Math.min(grid.beat, MAX_ECHO);
+    const feedback = ctx.createGain();
+    feedback.gain.value = ECHO_FEEDBACK;
+    input.connect(send).connect(echoDelay).connect(wet);
+    echoDelay.connect(feedback).connect(echoDelay);
+    return { parallel: true, apply: (amount, t) => send.gain.setTargetAtTime(amount, t, SLIDE) };
+  },
+  reverb(input, wet) {
+    const send = ctx.createGain();
+    send.gain.value = effectAmount.reverb;
+    const convolver = ctx.createConvolver();
+    convolver.buffer = impulse(REVERB_SECONDS);
+    input.connect(send).connect(convolver).connect(wet);
+    return { parallel: true, apply: (amount, t) => send.gain.setTargetAtTime(amount, t, SLIDE) };
+  },
+};
+
+/**
+ * Builds effect `id`'s stage after `input`, and returns its output. A
+ * switchable one runs its effect alongside a dry path, crossfaded by whether
+ * it's in (or, for a parallel one, mixed in beside it); the volume is just a
+ * gain.
+ */
+function buildStage(id, input) {
+  const out = ctx.createGain();
+  if (id === 'volume') {
+    out.gain.value = VOLUME_TOP * effectAmount.volume ** 2;
+    input.connect(out);
+    stages.volume = { apply: (amount, t) => out.gain.setTargetAtTime(VOLUME_TOP * amount ** 2, t, SLIDE) };
+    return out;
+  }
+  const dry = ctx.createGain();
+  const wet = ctx.createGain();
+  input.connect(dry).connect(out);
+  wet.connect(out);
+  const { level = 1, parallel = false, apply, onSwitch } = BUILDERS[id](input, wet);
+  const on = effectOn[id];
+  dry.gain.value = on && !parallel ? 0 : 1;
+  wet.gain.value = on ? level : 0;
+  stages[id] = { dry, wet, level, parallel, apply, onSwitch };
+  onSwitch?.(on);
+  return out;
+}
+
+/** Switches effect `id` (a switchable one from EFFECTS) in or out. */
+export function setEffectOn(id, on) {
+  effectOn[id] = on;
+  const stage = stages[id];
+  if (!stage) return;
+  const t = ctx.currentTime;
+  stage.dry.gain.setTargetAtTime(on && !stage.parallel ? 0 : 1, t, EFFECT_FADE);
+  stage.wet.gain.setTargetAtTime(on ? stage.level : 0, t, EFFECT_FADE);
+  stage.onSwitch?.(on);
+}
+
+/**
+ * Sets effect `id`'s slider (0..1): the compressor's squeeze; the octave's
+ * level; the auto-wah's sensitivity; the wah's pedal, heel to toe; the
+ * drives; the tone's brightness; the chorus's, flanger's, vibrato's and
+ * tremolo's depth; the phaser's speed; the volume; the echo's and reverb's mix.
+ */
+export function setEffectAmount(id, amount) {
+  effectAmount[id] = amount;
+  stages[id]?.apply(amount, ctx.currentTime);
 }
 
 /** Browsers start audio suspended until a tap or key press: call from one. */
@@ -149,24 +424,20 @@ export function unlockAudio() {
   if (c.state === 'suspended') c.resume().catch(() => {});
 }
 
-export function setEcho(on) {
-  const c = context();
-  echoSend.gain.setTargetAtTime(on ? 0.6 : 0, c.currentTime, 0.02);
-}
-
 /**
  * Sets the beat grid: `beat` (a beat's length in seconds, which the echo
- * repeats at), `origin` (when a beat fell, in performance.now() seconds) and
- * `division` (steps per beat that notes are quantized to; 0 for none). Any
- * left out stay as they were.
+ * repeats at and the tremolo pulses with), `origin` (when a beat fell, in
+ * performance.now() seconds) and `division` (steps per beat that notes are
+ * quantized to; 0 for none). Any left out stay as they were.
  */
 export function setBeatGrid({ origin, beat, division }) {
   if (origin != null) grid.origin = origin;
   if (division != null) grid.division = division;
   if (beat != null) {
     grid.beat = beat;
-    echoTime = Math.min(beat, MAX_ECHO);
-    if (ctx) echoDelay.delayTime.setTargetAtTime(echoTime, ctx.currentTime, 0.05);
+    if (!ctx) return;
+    echoDelay.delayTime.setTargetAtTime(Math.min(beat, MAX_ECHO), ctx.currentTime, 0.05);
+    tremoloLfo.frequency.setTargetAtTime(TREMOLO_PER_BEAT / beat, ctx.currentTime, 0.05);
   }
 }
 
@@ -215,11 +486,26 @@ function playSample(voice, sample, note, at, loudness = 1) {
   source.buffer = sample.buffer;
   const rate = 2 ** ((note - (sample.note ?? 0)) / 12);
   source.playbackRate.value = rate * bendRatio(voice);
-  ringing.set(voice, { source, rate });
   const gain = c.createGain();
   gain.gain.value = sample.gain * loudness;
   source.connect(gain);
   gain.connect(bus);
+  // with the octave in, the same sample at half the rate, an octave down
+  let sub = null;
+  if (effectOn.octave) {
+    sub = c.createBufferSource();
+    sub.buffer = sample.buffer;
+    sub.playbackRate.value = (rate / 2) * bendRatio(voice);
+    const subGain = c.createGain();
+    subGain.gain.value = sample.gain * loudness;
+    sub.connect(subGain).connect(octaveBus);
+    sub.onended = () => {
+      const i = sources.indexOf(sub);
+      if (i >= 0) sources.splice(i, 1);
+      subGain.disconnect();
+    };
+  }
+  ringing.set(voice, { source, rate, sub });
   source.onended = () => {
     const i = sources.indexOf(source);
     if (i >= 0) sources.splice(i, 1);
@@ -227,12 +513,19 @@ function playSample(voice, sample, note, at, loudness = 1) {
     gain.disconnect();
   };
   // `at`: when it should sound, in performance.now() seconds
-  source.start(c.currentTime + Math.max(0, at - performance.now() / 1000));
-  sources.push(source);
-  if (sources.length > MAX_SOURCES) sources.shift().stop();
+  const when = c.currentTime + Math.max(0, at - performance.now() / 1000);
+  for (const s of [source, sub]) {
+    if (!s) continue;
+    s.start(when);
+    sources.push(s);
+  }
+  while (sources.length > MAX_SOURCES) sources.shift().stop();
 }
 
-/** The voice's oscillator, started silent if it has none (one released has gone: see noteOff). */
+/**
+ * The voice's oscillator, and one an octave below for the octave, started
+ * silent if it has none (one released has gone: see noteOff).
+ */
 function synthVoice(voice) {
   let v = synths.get(voice);
   if (!v) {
@@ -243,7 +536,13 @@ function synthVoice(voice) {
     osc.connect(gain);
     gain.connect(bus);
     osc.start();
-    v = { osc, gain };
+    const sub = c.createOscillator();
+    const subGain = c.createGain();
+    subGain.gain.value = 0;
+    sub.connect(subGain);
+    subGain.connect(octaveBus);
+    sub.start();
+    v = { osc, gain, sub, subGain };
     synths.set(voice, v);
   }
   return v;
@@ -263,10 +562,12 @@ export function noteOn(voice, note, instrument, velocity = 1) {
     const v = synthVoice(voice);
     const start = c.currentTime + wait;
     v.start = start;
-    v.osc.type = type;
+    v.osc.type = v.sub.type = type;
     v.osc.frequency.setTargetAtTime(noteToFrequency(note), start, 0.005);
-    v.osc.detune.setValueAtTime((bends.get(voice) ?? 0) * 100, start);
+    v.sub.frequency.setTargetAtTime(noteToFrequency(note - 12), start, 0.005);
+    for (const osc of [v.osc, v.sub]) osc.detune.setValueAtTime((bends.get(voice) ?? 0) * 100, start);
     v.gain.gain.setTargetAtTime(level * loudness, start, 0.01);
+    v.subGain.gain.setTargetAtTime(effectOn.octave ? level * loudness : 0, start, 0.01);
     return;
   }
   const at = performance.now() / 1000 + wait;
@@ -284,10 +585,15 @@ export function noteOff(voice) {
   synths.delete(voice);
   const now = context().currentTime;
   const t = v.start > now ? v.start + QUANTIZED_SYNTH_MIN : now;
-  v.gain.gain.cancelScheduledValues(t);
-  v.gain.gain.setTargetAtTime(0, t, SYNTH_RELEASE);
-  v.osc.stop(t + SYNTH_STOP);
-  v.osc.onended = () => v.gain.disconnect();
+  for (const [osc, gain] of [
+    [v.osc, v.gain],
+    [v.sub, v.subGain],
+  ]) {
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setTargetAtTime(0, t, SYNTH_RELEASE);
+    osc.stop(t + SYNTH_STOP);
+    osc.onended = () => gain.disconnect();
+  }
 }
 
 /**
@@ -302,7 +608,9 @@ export function setBend(voice, semitones) {
   const t = ctx.currentTime;
   const sample = ringing.get(voice);
   sample?.source.playbackRate.setTargetAtTime(sample.rate * bendRatio(voice), t, 0.01);
-  synths.get(voice)?.osc.detune.setTargetAtTime(semitones * 100, t, 0.01);
+  sample?.sub?.playbackRate.setTargetAtTime((sample.rate / 2) * bendRatio(voice), t, 0.01);
+  const v = synths.get(voice);
+  for (const osc of v ? [v.osc, v.sub] : []) osc.detune.setTargetAtTime(semitones * 100, t, 0.01);
 }
 
 let noise = null;

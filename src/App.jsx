@@ -8,10 +8,11 @@ import { MENU_TOGGLE } from './XRMenuPanel.jsx';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { buildCells } from './Fretboard.jsx';
-import { INSTRUMENTS, loadInstrument, playChord, setBeatGrid, setEcho, setFilter, unlockAudio } from './audio.js';
+import { EFFECTS, INSTRUMENTS, loadInstrument, playChord, setBeatGrid, setEffectAmount, setEffectOn, unlockAudio } from './audio.js';
 import { SCALES, TUNINGS, builtChord, chordNotes, chordPitchClasses, keyChordChart, mod12, stockChords } from './music.js';
 import { useProgression } from './progression.js';
-import { loadSettings, saveSettings } from './settings.js';
+import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './settings.js';
+import { RESET_EFFECTS } from './SideFrames.jsx';
 import {
   CHORD_PREFIX,
   DROPDOWNS,
@@ -91,9 +92,8 @@ function useMusicState() {
   const [scale, setScale] = useState(saved.scale);
   const [key, setKey] = useState(saved.key);
   const [tuning, setTuning] = useState(saved.tuning);
-  const [echo, setEchoOn] = useState(saved.echo);
   const [quantize, setQuantize] = useState(saved.quantize); // steps per beat notes wait for (0: off)
-  const [filter, setFilterId] = useState(saved.filter); // the filter every note passes through: see FILTERS
+  const [effects, setEffects] = useState(saved.effects); // the FilterFrame's effects switched in: id -> true (see EFFECTS)
   const [velocity, setVelocity] = useState(saved.velocity); // notes as loud as they're struck hard
   const [playOnSelect, setPlayOnSelect] = useState(saved.playOnSelect); // played on selecting a chord: 'off' | 'root' | 'chord'
   const [background, setBackground] = useState('skybox'); // 'solid' | 'skybox' | 'passthrough'
@@ -112,8 +112,8 @@ function useMusicState() {
     if (interval) setProgression((p) => p.map((chord) => ({ ...chord, root: mod12(chord.root + interval) })));
   }, [key]);
   useEffect(
-    () => saveSettings({ instrument, scale, key, tuning, echo, quantize, filter, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft }),
-    [instrument, scale, key, tuning, echo, quantize, filter, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft],
+    () => saveSettings({ instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft }),
+    [instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft],
   );
 
   const actions = useMemo(
@@ -122,7 +122,10 @@ function useMusicState() {
       nextScale: (step = 1) => setScale((s) => cycle(SCALES, s, step)),
       nextKey: (step = 1) => setKey((k) => (k + step + 12) % 12),
       nextTuning: (step = 1) => setTuning((t) => cycle(TUNINGS, t, step)),
-      toggleEcho: () => setEchoOn((v) => !v),
+      toggleEffect: (id) => setEffects((e) => ({ ...e, [id]: !e[id] })),
+      toggleEcho: () => setEffects((e) => ({ ...e, echo: !e.echo })),
+      /** Every effect switched out (see App for the sliders). */
+      clearEffects: () => setEffects(DEFAULT_SETTINGS.effects),
       toggleVelocity: () => setVelocity((v) => !v),
       toggleMenu: () => setMenuOpen((v) => !v),
       setPage: (p) => {
@@ -136,7 +139,6 @@ function useMusicState() {
         ({
           instrument: setInstrument,
           quantize: setQuantize,
-          filter: setFilterId,
           playOnSelect: setPlayOnSelect,
           scale: setScale,
           key: setKey,
@@ -172,7 +174,7 @@ function useMusicState() {
     }),
     [],
   );
-  const state = { instrument, scale, key, tuning, echo, quantize, filter, velocity, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
+  const state = { instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
   return [state, actions];
 }
 
@@ -539,10 +541,23 @@ export default function App() {
   }, [player.playing, player.measure, player.beat]);
   useAudioUnlock();
   const sample = useInstrument(state.instrument);
-  useEffect(() => setEcho(state.echo), [state.echo]);
-  useEffect(() => setFilter(state.filter), [state.filter]);
-  // the FilterFrame's slider, 0..1: it moves every frame while dragged, so it's no state (see SideFrames.jsx)
-  const filterAmount = useRef(0.5);
+  useEffect(() => {
+    for (const [id, on] of Object.entries(state.effects)) setEffectOn(id, on);
+  }, [state.effects]);
+  // the FilterFrame's sliders, effect id -> 0..1: they move every frame while dragged, so they're no state (see SideFrames.jsx)
+  const effectAmounts = useRef(Object.fromEntries(EFFECTS.map((e) => [e.id, e.amount])));
+  // a FilterFrame switch pressed: an effect's switches it in or out; Reset puts every effect back as it started, switched out
+  const pressEffectSwitch = useCallback(
+    (id) => {
+      if (id !== RESET_EFFECTS) return actions.toggleEffect(id);
+      for (const { id: effect, amount } of EFFECTS) {
+        effectAmounts.current[effect] = amount;
+        setEffectAmount(effect, amount);
+      }
+      actions.clearEffects();
+    },
+    [actions],
+  );
   // the beat (for the echo and quantizing) and how finely notes are quantized
   useEffect(() => setBeatGrid({ beat: 60 / state.bpm, division: state.quantize }), [state.bpm, state.quantize]);
   const cells = useMemo(() => buildCells(state.tuning, state.key, state.scale), [state.tuning, state.key, state.scale]);
@@ -627,7 +642,6 @@ export default function App() {
         actions.applyStock(choice, state.key);
       } else actions.pick(dropdownId, choice);
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
-    else if (id === 'echo') actions.toggleEcho();
     else if (id === 'velocity') actions.toggleVelocity();
     else if (id === 'play') player.toggle();
     else if (id.startsWith(CHORD_PREFIX)) {
@@ -693,7 +707,8 @@ export default function App() {
             chart={chart}
             selectedChord={shownChord}
             onChord={chooseChord}
-            filterAmount={filterAmount}
+            effectAmounts={effectAmounts}
+            onEffectSwitch={pressEffectSwitch}
             state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
             menu={menu}
             onExitXR={() => selectView('normal')}

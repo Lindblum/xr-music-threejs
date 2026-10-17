@@ -244,9 +244,10 @@ function useTouches(cells, instrument, velocitySensitive) {
  * `chord`: the pitch classes the Fretboard raises (or null for the key's
  * triad); `chart` the key's chord chart for the ChordFrame, `selectedChord`
  * the chord raised, if it's on the chart, and `onChord(chord)` a chord chosen
- * there. `filterAmount.current` is the FilterFrame's slider (0..1).
+ * there. `effectAmounts.current` is the FilterFrame's sliders (effect id ->
+ * 0..1), and `onEffectSwitch(id)` presses a switch there: an effect's, or RESET_EFFECTS.
  */
-export default function Scene({ cells, chord, chart, selectedChord, onChord, filterAmount, state, menu, phone, holding, onExitXR }) {
+export default function Scene({ cells, chord, chart, selectedChord, onChord, effectAmounts, onEffectSwitch, state, menu, phone, holding, onExitXR }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -383,8 +384,9 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, fil
       <FilterFrame
         groupRef={filterFrame}
         position={filterFrameStart}
-        filter={state.filter}
-        amount={filterAmount}
+        effects={state.effects}
+        amounts={effectAmounts}
+        onSwitch={onEffectSwitch}
         handles={handles}
         hoverEnabled={!immersive}
       />
@@ -415,7 +417,8 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, fil
         chordFrame={chordFrame}
         toolFrame={toolFrame}
         filterFrame={filterFrame}
-        filterAmount={filterAmount}
+        effectAmounts={effectAmounts}
+        onEffectSwitch={onEffectSwitch}
         picks={picks}
         spawnPick={spawnPick}
         removePick={removePick}

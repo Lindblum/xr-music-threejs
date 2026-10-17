@@ -3,7 +3,7 @@
 // serves every project from one domain. Anything missing or unrecognised in
 // it falls back to the default.
 
-import { FILTERS, INSTRUMENTS } from './audio.js';
+import { EFFECTS, INSTRUMENTS } from './audio.js';
 import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
 import { BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE } from './menu.js';
 
@@ -17,9 +17,8 @@ export const DEFAULT_SETTINGS = {
   scale: SCALES[0], // Major
   key: 0, // C
   tuning: TUNINGS[0],
-  echo: false,
   quantize: 0, // off
-  filter: 'off', // see FILTERS
+  effects: Object.fromEntries(EFFECTS.filter((e) => e.toggle).map((e) => [e.id, false])), // the FilterFrame's effects switched in: see EFFECTS
   velocity: false, // notes as loud as they're struck hard
   playOnSelect: 'off', // what's played when a chord in the queue is selected or landed on: 'off' | 'root' | 'chord'
   bpm: 100,
@@ -61,9 +60,11 @@ export function loadSettings() {
     scale: SCALES.find((s) => s.id === saved.scale) ?? d.scale,
     key: pick(isRoot(saved.key), saved.key, d.key),
     tuning: TUNINGS.find((t) => t.id === saved.tuning) ?? d.tuning,
-    echo: Boolean(saved.echo),
     quantize: pick(QUANTIZE.some((q) => q.division === saved.quantize), saved.quantize, d.quantize),
-    filter: pick(FILTERS.some((f) => f.id === saved.filter), saved.filter, d.filter),
+    // kept as the ids of those switched in (the echo was once a setting of its own)
+    effects: Object.fromEntries(
+      Object.keys(d.effects).map((id) => [id, Array.isArray(saved.effects) ? saved.effects.includes(id) : id === 'echo' && Boolean(saved.echo)]),
+    ),
     velocity: Boolean(saved.velocity),
     // (once a plain on / off: on was the whole chord)
     playOnSelect:
@@ -83,9 +84,8 @@ export function saveSettings(s) {
     scale: s.scale.id,
     key: s.key,
     tuning: s.tuning.id,
-    echo: s.echo,
     quantize: s.quantize,
-    filter: s.filter,
+    effects: EFFECTS.filter((e) => s.effects[e.id]).map((e) => e.id),
     playOnSelect: s.playOnSelect,
     velocity: s.velocity,
     bpm: s.bpm,

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { FRAME_BORDER, FRAME_COLOR, frameGeometry, frameSize, touchesMoulding } from './Fretboard.jsx';
 import { chordName, noteCss, noteRgb, sameChord } from './music.js';
 import { PICK_COLOR, pickGeometry } from './Pick.jsx';
-import { FILTERS, setFilterAmount } from './audio.js';
+import { EFFECTS, setEffectAmount } from './audio.js';
 
 // The frames that start beside the NeckFrame: each its own handle, which a
 // grip moves, turns and scales as the NeckFrame does the Fretboard (see
@@ -22,10 +22,14 @@ import { FILTERS, setFilterAmount } from './audio.js';
 // that has no pick docked on it and isn't gripping anything gives that
 // controller a new pick; a pick let go on it goes back in (see Grab.jsx).
 //
-// The FilterFrame, below: a slider for the filter (see audio.js), like a wah
-// pedal stood on end. Its knob, taken by a grip or the trigger (or dragged
-// with the mouse), slides up and down the track and stays where it's let go:
-// bottom is heel down, top toe down. The frame dims while the filter is off.
+// The FilterFrame, below: the effects every note passes through (see
+// audio.js), side by side in signal-chain order like a pedalboard, each a
+// slider like a pedal stood on end. A slider's knob, taken by a grip or the
+// trigger (or dragged with the mouse), slides up and down its track and
+// stays where it's let go. The switch atop each effect but the volume,
+// touched, triggered or clicked, switches it in or out; an effect that's out
+// is dimmed, though its slider still moves. The Reset switch at the end puts
+// every effect back as it started.
 
 const GAP = 0.04; // between the NeckFrame and a side frame, to start with
 const MARGIN = 0.01; // between the nodes and their frame
@@ -46,17 +50,25 @@ const CHORD_INNER_X = COLUMN + MARGIN; // half the ChordFrame's opening, across
 const TOOL_INNER = 0.05; // half the ToolFrame's opening, each way
 const TOOL_PICK_SCALE = 0.6; // of a full-size pick
 const TOOL_PICK_RAISE = 0.02;
-const FILTER_INNER_X = 0.06; // half the FilterFrame's opening, across...
+const EFFECT_COLUMN = 0.11; // between the sliders' centres
+const COLUMNS = EFFECTS.length + 1; // and the reset's
+const FILTER_INNER_X = (COLUMNS * EFFECT_COLUMN) / 2; // half the FilterFrame's opening, across...
 const FILTER_INNER_Y = 0.2; // ...and down
-const TRACK_CENTRE = -0.03; // the track's middle, below the label
-const TRAVEL = 0.26; // how far the knob's centre slides, end to end
+const TRACK_CENTRE = -0.03; // the tracks' middle, below the switches
+const TRAVEL = 0.26; // how far a knob's centre slides, end to end
 const TRACK = [0.012, TRAVEL + 0.04, 0.01];
-const KNOB = [0.08, 0.04, 0.04];
+const KNOB = [0.07, 0.04, 0.04];
 const KNOB_RAISE = 0.03;
-const LABEL_Y = 0.155;
-const LABEL_SIZE = [0.11, 0.055];
-const FILTER_ON = '#e0a030';
-const FILTER_OFF = '#4a4a4a';
+const SWITCH = [0.1, 0.05, 0.02];
+const SWITCH_Y = 0.155;
+const SWITCH_RAISE = 0.012;
+// each effect lit in its own colour, round the colour wheel in chain order
+const EFFECT_COLORS = Object.fromEntries(EFFECTS.map((e, i) => [e.id, `hsl(${Math.round((i * 330) / EFFECTS.length)}, 70%, 58%)`]));
+const EFFECT_OFF = '#4a4a4a';
+const RESET_COLOR = '#ff6b5e';
+
+/** The Reset switch's id, as an effect's switch would have its effect's. */
+export const RESET_EFFECTS = 'reset';
 
 /**
  * Where each side frame's centre starts, across from the Fretboard's
@@ -228,39 +240,43 @@ export function ToolFrame({ groupRef, handles, ...props }) {
   );
 }
 
-/** The filter's name, for the FilterFrame's label, lit while it's on. Shared by every FilterFrame. */
-const filterLabels = new Map();
-function filterLabel(name, on) {
-  const id = `${name}|${on}`;
-  if (!filterLabels.has(id)) {
+/** An effect's name on its switch, lit in its colour while it's in. Shared by every FilterFrame. */
+const switchLabels = new Map();
+function switchLabel(effect, on) {
+  const id = `${effect.id}|${on}`;
+  if (!switchLabels.has(id)) {
     const canvas = document.createElement('canvas');
     canvas.width = 256;
-    canvas.height = 128;
+    canvas.height = 112;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#1b1b1b';
+    ctx.fillStyle = on ? '#262626' : '#161616';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = on ? FILTER_ON : '#8a8a8a';
-    ctx.font = '600 72px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = effect.id === RESET_EFFECTS ? RESET_COLOR : on ? EFFECT_COLORS[effect.id] : '#7a7a7a';
+    ctx.font = '600 52px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(name, canvas.width / 2, 70, canvas.width - 16);
+    ctx.fillText(effect.name, canvas.width / 2, 60, canvas.width - 20);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
-    filterLabels.set(id, texture);
+    switchLabels.set(id, texture);
   }
-  return filterLabels.get(id);
+  return switchLabels.get(id);
 }
 
 const trackGeometry = new THREE.BoxGeometry(...TRACK);
 const fillGeometry = new THREE.BoxGeometry(TRACK[0] * 1.6, 1, TRACK[2] * 1.6); // stretched up to the knob each frame
 const knobGeometry = new THREE.BoxGeometry(...KNOB);
+const switchGeometry = new THREE.BoxGeometry(...SWITCH);
 
-/** The knob's height in FilterFrame space for the slider at `amount`. */
+/** A knob's height in FilterFrame space for its slider at `amount`. */
 const knobY = (amount) => TRACK_CENTRE + (amount - 0.5) * TRAVEL;
 
+/** Column `i`'s centre, across the FilterFrame. */
+const columnX = (i) => (i - (COLUMNS - 1) / 2) * EFFECT_COLUMN;
+
 /**
- * Where `world` is along the FilterFrame's track, as the slider's 0..1
+ * Where `world` is along the FilterFrame's tracks, as a slider's 0..1
  * (clamped, unless `clamp` is false).
  */
 export function knobAmountAt(filterFrame, world, clamp = true) {
@@ -269,14 +285,31 @@ export function knobAmountAt(filterFrame, world, clamp = true) {
   return clamp ? THREE.MathUtils.clamp(amount, 0, 1) : amount;
 }
 
-/** Whether a sphere at `world` (radius in metres) touches the FilterFrame's knob. */
-export function touchesFilterKnob(knob, world, radius) {
-  knob.worldToLocal(_local.copy(world));
-  const r = radius / _scale.setFromMatrixScale(knob.matrixWorld).x;
-  const dx = Math.max(Math.abs(_local.x) - KNOB[0] / 2, 0);
-  const dy = Math.max(Math.abs(_local.y) - KNOB[1] / 2, 0);
-  const dz = Math.max(Math.abs(_local.z) - KNOB[2] / 2, 0);
+/** Whether a sphere at `world` (radius in metres) touches a box `size` centred on `mesh`. */
+function touchesBox(mesh, size, world, radius) {
+  mesh.worldToLocal(_local.copy(world));
+  const r = radius / _scale.setFromMatrixScale(mesh.matrixWorld).x;
+  const dx = Math.max(Math.abs(_local.x) - size[0] / 2, 0);
+  const dy = Math.max(Math.abs(_local.y) - size[1] / 2, 0);
+  const dz = Math.max(Math.abs(_local.z) - size[2] / 2, 0);
   return dx * dx + dy * dy + dz * dz <= r * r;
+}
+
+/** Whether a sphere at `world` (radius in metres) touches one of the FilterFrame's knobs. */
+export const touchesEffectKnob = (knob, world, radius) => touchesBox(knob, KNOB, world, radius);
+
+/** ...or one of its switches. */
+export const touchesEffectSwitch = (button, world, radius) => touchesBox(button, SWITCH, world, radius);
+
+/** The FilterFrame's knobs (named EffectKnob) and switches (EffectSwitch), each with `userData.effect`. */
+export function effectControls(filterFrame) {
+  const knobs = [];
+  const switches = [];
+  filterFrame?.traverse((o) => {
+    if (o.name === 'EffectKnob') knobs.push(o);
+    else if (o.name === 'EffectSwitch') switches.push(o);
+  });
+  return { knobs, switches };
 }
 
 const _pointer = new THREE.Vector2();
@@ -285,34 +318,147 @@ const _normal = new THREE.Vector3();
 const _onPlane = new THREE.Vector3();
 
 /**
- * The FilterFrame, in `groupRef`, for the filter `filter` (an id from
- * FILTERS). `amount.current` is the slider (0..1), which the knob follows;
- * it glows while `handles.current.filterKnob` (hand -> true) says a hand
- * touches or holds it. With `hoverEnabled` the mouse drags it, anywhere
- * along the track: a press on the track jumps it there.
+ * One effect's column on the FilterFrame: its switch (or, for the volume,
+ * just its name), track and knob. `onPress(e)` a mouse press on the knob or
+ * the track; `onSwitch()` a click on the switch.
  */
-export function FilterFrame({ groupRef, filter, amount, handles, hoverEnabled, ...props }) {
-  const on = filter !== 'off';
-  const name = FILTERS.find((f) => f.id === filter)?.name ?? '';
+function EffectColumn({ effect, x, on, amount, handles, hoverEnabled, onPress, onSwitch }) {
+  const color = on ? EFFECT_COLORS[effect.id] : EFFECT_OFF;
   const knob = useRef(null);
   const fill = useRef(null);
   const knobMaterial = useRef(null);
+  const switchMaterial = useRef(null);
+  const hovered = useRef(null); // 'knob' | 'switch' under the mouse
+  const hover = (part) => ({
+    onPointerOver: () => hoverEnabled && (hovered.current = part),
+    onPointerOut: () => hovered.current === part && (hovered.current = null),
+  });
+  useFrame(() => {
+    const y = knobY(amount.current[effect.id]);
+    knob.current?.position.setY(y);
+    if (fill.current) {
+      const bottom = TRACK_CENTRE - TRACK[1] / 2;
+      fill.current.scale.y = Math.max(y - bottom, 0.001);
+      fill.current.position.y = (bottom + y) / 2;
+    }
+    const knobLit = hovered.current === 'knob' || handles.current.effectKnobs?.[effect.id] || handles.current.draggingEffect === effect.id;
+    knobMaterial.current?.emissive.copy(knobLit ? FRAME_TOUCHED : NO_EMISSIVE);
+    const switchLit = hovered.current === 'switch' || handles.current.effectSwitches?.[effect.id];
+    switchMaterial.current?.emissive.copy(switchLit ? FRAME_TOUCHED : NO_EMISSIVE);
+  });
+  return (
+    <group position-x={x}>
+      <mesh
+        name={effect.toggle ? 'EffectSwitch' : 'EffectName'}
+        geometry={switchGeometry}
+        position={[0, SWITCH_Y, SWITCH_RAISE]}
+        userData={{ effect: effect.id }}
+        {...(effect.toggle
+          ? {
+              ...hover('switch'),
+              onPointerDown: (e) => {
+                if (!hoverEnabled) return;
+                e.stopPropagation();
+                onSwitch();
+              },
+            }
+          : { raycast: () => null })}
+      >
+        {/* the name on its face; the sides dark */}
+        <meshStandardMaterial attach="material-0" color="#202020" />
+        <meshStandardMaterial attach="material-1" color="#202020" />
+        <meshStandardMaterial attach="material-2" color="#202020" />
+        <meshStandardMaterial attach="material-3" color="#202020" />
+        <meshStandardMaterial attach="material-4" ref={switchMaterial} map={switchLabel(effect, on)} roughness={0.5} />
+        <meshStandardMaterial attach="material-5" color="#202020" />
+      </mesh>
+      <mesh geometry={trackGeometry} position-y={TRACK_CENTRE} raycast={() => null}>
+        <meshStandardMaterial color="#1b1b1b" roughness={0.8} />
+      </mesh>
+      <mesh ref={fill} geometry={fillGeometry} raycast={() => null}>
+        <meshStandardMaterial color={color} roughness={0.6} />
+      </mesh>
+      {/* invisible, behind the track: a press anywhere along it takes the knob there */}
+      <mesh position={[0, TRACK_CENTRE, -0.01]} onPointerDown={onPress}>
+        <planeGeometry args={[EFFECT_COLUMN, TRAVEL + KNOB[1]]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} />
+      </mesh>
+      <mesh
+        ref={knob}
+        name="EffectKnob"
+        geometry={knobGeometry}
+        position-z={KNOB_RAISE}
+        userData={{ effect: effect.id }}
+        onPointerDown={onPress}
+        {...hover('knob')}
+      >
+        <meshStandardMaterial ref={knobMaterial} color={on ? '#e8e8e8' : '#777777'} roughness={0.4} metalness={0.2} />
+      </mesh>
+    </group>
+  );
+}
+
+/**
+ * The FilterFrame's Reset switch, at the end of the row: a switch with no
+ * slider, named and pressed like an effect's (see `onSwitch`).
+ */
+function ResetSwitch({ x, handles, hoverEnabled, onSwitch }) {
+  const material = useRef(null);
+  const hovered = useRef(false);
+  useFrame(() => {
+    const lit = hovered.current || handles.current.effectSwitches?.[RESET_EFFECTS];
+    material.current?.emissive.copy(lit ? FRAME_TOUCHED : NO_EMISSIVE);
+  });
+  return (
+    <mesh
+      name="EffectSwitch"
+      geometry={switchGeometry}
+      position={[x, SWITCH_Y, SWITCH_RAISE]}
+      userData={{ effect: RESET_EFFECTS }}
+      onPointerOver={() => hoverEnabled && (hovered.current = true)}
+      onPointerOut={() => (hovered.current = false)}
+      onPointerDown={(e) => {
+        if (!hoverEnabled) return;
+        e.stopPropagation();
+        onSwitch();
+      }}
+    >
+      <meshStandardMaterial attach="material-0" color="#202020" />
+      <meshStandardMaterial attach="material-1" color="#202020" />
+      <meshStandardMaterial attach="material-2" color="#202020" />
+      <meshStandardMaterial attach="material-3" color="#202020" />
+      <meshStandardMaterial attach="material-4" ref={material} map={switchLabel({ id: RESET_EFFECTS, name: 'Reset' }, true)} roughness={0.5} />
+      <meshStandardMaterial attach="material-5" color="#202020" />
+    </mesh>
+  );
+}
+
+/**
+ * The FilterFrame, in `groupRef`. `effects` says which switchable effects
+ * are in (id -> true), `amounts.current` is each effect's slider (id ->
+ * 0..1), which its knob follows, and `onSwitch(id)` presses a switch: an
+ * effect's, or RESET_EFFECTS.
+ * Knobs and switches glow while `handles.current.effectKnobs` and
+ * `effectSwitches` (id -> true) say a hand touches or holds them. With
+ * `hoverEnabled` the mouse drags a knob, anywhere along its track (a press on
+ * the track jumps it there), and clicks the switches.
+ */
+export function FilterFrame({ groupRef, effects, amounts, onSwitch, handles, hoverEnabled, ...props }) {
   const controls = useThree((s) => s.controls);
   const camera = useThree((s) => s.camera);
   const canvas = useThree((s) => s.gl.domElement);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
-  const dragging = useRef(false);
-  const hovered = useRef(false);
+  const dragging = useRef(null); // the effect whose knob the mouse is dragging
 
-  /** The slider to where `ray` (world) crosses the frame's face. */
-  const dragAlong = (ray) => {
+  /** Effect `id`'s slider to where `ray` (world) crosses the frame's face. */
+  const dragAlong = (id, ray) => {
     const frame = groupRef.current;
     if (!frame) return;
     _normal.set(0, 0, 1).transformDirection(frame.matrixWorld);
     _plane.setFromNormalAndCoplanarPoint(_normal, frame.getWorldPosition(_onPlane));
     if (!ray.intersectPlane(_plane, _onPlane)) return;
-    amount.current = knobAmountAt(frame, _onPlane);
-    setFilterAmount(amount.current);
+    amounts.current[id] = knobAmountAt(frame, _onPlane);
+    setEffectAmount(id, amounts.current[id]);
   };
   // a drag follows the pointer anywhere on the page, until the button is let go; meanwhile the view stays still
   useEffect(() => {
@@ -321,11 +467,12 @@ export function FilterFrame({ groupRef, filter, amount, handles, hoverEnabled, .
       const rect = canvas.getBoundingClientRect();
       _pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(_pointer, camera);
-      dragAlong(raycaster.ray);
+      dragAlong(dragging.current, raycaster.ray);
     };
     const onUp = () => {
       if (!dragging.current) return;
-      dragging.current = false;
+      dragging.current = null;
+      handles.current.draggingEffect = null;
       if (controls) controls.enabled = true;
     };
     window.addEventListener('pointermove', onMove);
@@ -337,50 +484,30 @@ export function FilterFrame({ groupRef, filter, amount, handles, hoverEnabled, .
       window.removeEventListener('pointercancel', onUp);
     };
   });
-  const mouse = {
-    onPointerDown: (e) => {
-      if (!hoverEnabled) return;
-      e.stopPropagation();
-      dragging.current = true;
-      if (controls) controls.enabled = false;
-      dragAlong(e.ray);
-    },
-    onPointerOver: () => hoverEnabled && (hovered.current = true),
-    onPointerOut: () => (hovered.current = false),
-  };
-
-  useFrame(() => {
-    const y = knobY(amount.current);
-    knob.current?.position.setY(y);
-    if (fill.current) {
-      const bottom = TRACK_CENTRE - TRACK[1] / 2;
-      fill.current.scale.y = Math.max(y - bottom, 0.001);
-      fill.current.position.y = (bottom + y) / 2;
-    }
-    const touched = hovered.current || dragging.current || Object.values(handles.current.filterKnob ?? {}).some(Boolean);
-    knobMaterial.current?.emissive.copy(touched ? FRAME_TOUCHED : NO_EMISSIVE);
-  });
 
   return (
     <group ref={groupRef} name="FilterFrame" userData={{ innerX: FILTER_INNER_X, innerY: FILTER_INNER_Y }} {...props}>
-      <mesh position={[0, LABEL_Y, 0.005]} raycast={() => null}>
-        <planeGeometry args={LABEL_SIZE} />
-        <meshBasicMaterial map={filterLabel(name, on)} toneMapped={false} />
-      </mesh>
-      <mesh geometry={trackGeometry} position-y={TRACK_CENTRE} raycast={() => null}>
-        <meshStandardMaterial color="#1b1b1b" roughness={0.8} />
-      </mesh>
-      <mesh ref={fill} geometry={fillGeometry} raycast={() => null}>
-        <meshStandardMaterial color={on ? FILTER_ON : FILTER_OFF} roughness={0.6} />
-      </mesh>
-      {/* invisible, behind the track: a press anywhere along it takes the knob there */}
-      <mesh position={[0, TRACK_CENTRE, -0.01]} {...mouse}>
-        <planeGeometry args={[2 * FILTER_INNER_X, TRAVEL + KNOB[1]]} />
-        <meshBasicMaterial colorWrite={false} depthWrite={false} />
-      </mesh>
-      <mesh ref={knob} name="FilterKnob" geometry={knobGeometry} position-z={KNOB_RAISE} {...mouse}>
-        <meshStandardMaterial ref={knobMaterial} color={on ? '#e8e8e8' : '#777777'} roughness={0.4} metalness={0.2} />
-      </mesh>
+      {EFFECTS.map((effect, i) => (
+        <EffectColumn
+          key={effect.id}
+          effect={effect}
+          x={columnX(i)}
+          on={!effect.toggle || Boolean(effects[effect.id])}
+          amount={amounts}
+          handles={handles}
+          hoverEnabled={hoverEnabled}
+          onSwitch={() => onSwitch(effect.id)}
+          onPress={(e) => {
+            if (!hoverEnabled) return;
+            e.stopPropagation();
+            dragging.current = effect.id;
+            handles.current.draggingEffect = effect.id;
+            if (controls) controls.enabled = false;
+            dragAlong(effect.id, e.ray);
+          }}
+        />
+      ))}
+      <ResetSwitch x={columnX(EFFECTS.length)} handles={handles} hoverEnabled={hoverEnabled} onSwitch={() => onSwitch(RESET_EFFECTS)} />
       <Moulding name="FilterFrameMoulding" target="filter" innerX={FILTER_INNER_X} innerY={FILTER_INNER_Y} handles={handles} />
     </group>
   );

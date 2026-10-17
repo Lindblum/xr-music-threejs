@@ -4,7 +4,7 @@
 // dropdown list of choices beneath it (a chevron on its right). Buttons can
 // share a row, and a run of them can sit in a framed group (see menuBlocks).
 
-import { FILTERS, INSTRUMENTS, isSynth } from './audio.js';
+import { INSTRUMENTS, isSynth } from './audio.js';
 import {
   ALTERATIONS,
   CHORD_MODIFIERS,
@@ -141,7 +141,7 @@ export const PLAY_ON_SELECT = [
 export const CHORD_PREFIX = 'chord-';
 
 /** The dropdowns' ids. */
-export const DROPDOWNS = ['instrument', 'quantize', 'filter', 'playOnSelect', 'scale', 'key', 'tuning', 'bpm', 'beats', 'stock', 'degree', 'alteration', 'quality', 'modifier', 'background', 'view'];
+export const DROPDOWNS = ['instrument', 'quantize', 'playOnSelect', 'scale', 'key', 'tuning', 'bpm', 'beats', 'stock', 'degree', 'alteration', 'quality', 'modifier', 'background', 'view'];
 
 /**
  * The choices behind each dropdown on this device, in list order. App
@@ -151,7 +151,6 @@ export function dropdownChoices(env, state) {
   return {
     instrument: INSTRUMENTS,
     quantize: QUANTIZE.map((q) => q.division),
-    filter: FILTERS.map((f) => f.id),
     playOnSelect: PLAY_ON_SELECT.map((p) => p.id),
     scale: SCALES,
     key: NOTE_NAMES.map((_, i) => i),
@@ -168,11 +167,7 @@ export function dropdownChoices(env, state) {
   };
 }
 
-/**
- * The Music page's first part: the sound (a synth or a sample), its echo and
- * quantizing side by side, velocity sensitivity, the filter (worked by the
- * FilterFrame's slider), and the board's tuning.
- */
+/** The Music page's first part: the sound (a synth or a sample), quantizing, velocity sensitivity, and the board's tuning. The effects, the echo among them, are on the FilterFrame. */
 function instrumentItems(state) {
   return [
     {
@@ -184,20 +179,10 @@ function instrumentItems(state) {
       dropdown: dropdown(state, 'instrument', INSTRUMENTS, INSTRUMENTS.indexOf(state.instrument), INSTRUMENTS.map(instrumentIcon), 4, false),
     },
     {
-      id: 'echo',
-      label: `Echo: ${state.echo ? 'On' : 'Off'}`,
-      icon: state.echo ? 'echo' : 'echoOff',
-      title: 'Shortcut: E. It repeats once a beat (see Progression → Beats per Minute)',
-      row: 'timing',
-      small: true,
-    },
-    {
       id: 'quantize',
       label: `Quantize: ${QUANTIZE.find((q) => q.division === state.quantize).name}`,
       icon: 'beats',
       title: 'Holds each note back to the next beat, or part of one',
-      row: 'timing',
-      small: true,
       dropdown: dropdown(
         state,
         'quantize',
@@ -212,20 +197,6 @@ function instrumentItems(state) {
       label: `Velocity Sensitivity: ${state.velocity ? 'On' : 'Off'}`,
       icon: 'velocity',
       title: 'Notes are as loud as the controller, pick or mouse is fast as it strikes them',
-    },
-    {
-      id: 'filter',
-      label: `Filter: ${FILTERS.find((f) => f.id === state.filter).name}`,
-      icon: 'filter',
-      title: "Slide the FilterFrame's knob, below the Fretboard, to work it",
-      dropdown: dropdown(
-        state,
-        'filter',
-        FILTERS.map((f) => f.name),
-        FILTERS.findIndex((f) => f.id === state.filter),
-        undefined,
-        FILTERS.length,
-      ),
     },
     {
       id: 'tuning',
@@ -493,7 +464,6 @@ const SAMPLE_STATE = {
   scale: SCALES[0],
   tuning: TUNINGS[0],
   quantize: 0,
-  filter: 'off',
   playOnSelect: 'off',
   velocity: false,
   key: 0,
@@ -517,7 +487,7 @@ export const MENU_ROWS =
  */
 export function possibleLabels(env) {
   const labels = new Set();
-  const base = { ...SAMPLE_STATE, instrument: INSTRUMENTS[0], echo: false, background: 'solid', view: 'normal' };
+  const base = { ...SAMPLE_STATE, instrument: INSTRUMENTS[0], background: 'solid', view: 'normal' };
   // a long chord name, in a long progression, at its end
   const longest = { root: 1, type: 'min', modifier: 'maj7' };
   const variants = [
@@ -527,9 +497,7 @@ export function possibleLabels(env) {
     ...TUNINGS.map((tuning) => ({ tuning })),
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),
-    { echo: true },
     ...QUANTIZE.map((q) => ({ quantize: q.division })),
-    ...FILTERS.map((f) => ({ filter: f.id })),
     ...PLAY_ON_SELECT.map((p) => ({ playOnSelect: p.id })),
     { velocity: true },
     ...BPMS.map((bpm) => ({ bpm })),

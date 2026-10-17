@@ -6,7 +6,7 @@ import { SPACING, frameSize, nearFrame, touchedCells, touchedCellsByPoints, touc
 import { RADIUS, TIP_FORWARD, pulse } from './Touch.jsx';
 import { PICK_DOCK_POSITION, PICK_DOCK_ROTATION, pickPoints, touchesPick } from './Pick.jsx';
 import { chordOfNode, effectControls, knobAmountAt, touchesEffectKnob, touchesEffectSwitch, touchesSideFrame } from './SideFrames.jsx';
-import { playClick, setEffectAmount } from './audio.js';
+import { playClick } from './audio.js';
 
 // Touch controller grips. A grip pressed while that controller points at the
 // menu panel, or touches it, takes it, held rigidly in the hand, off whatever it was docked
@@ -20,10 +20,11 @@ import { playClick, setEffectAmount } from './audio.js';
 // one off (with a click), and let go near a controller with no pick on it,
 // it docks there, pointing forward from it; let go on the ToolFrame's pick,
 // it goes back in the toolbox. The first pick starts on the right
-// controller, the panel on the left. A double tap of a grip lets go of
-// whatever is docked on that controller, leaving it where it is; with
-// nothing docked there, it calls back the panel, if that's its home (where it
-// was last docked), and the pick last let go from it.
+// controller, the panel on the left. A double tap of a grip docks the panel,
+// or a pick, on that controller, if it's touching it or pointing at it (off
+// the other controller, if it was there; a pick already docked here is let
+// go where it is to make way). Touching or pointing at neither, a double tap
+// lets go of whatever is docked on that controller, leaving it where it is.
 //
 // The ToolFrame's pick (see SideFrames.jsx), touched by a controller's tip,
 // or pointed at with the trigger pulled, gives that controller a new pick,
@@ -193,10 +194,11 @@ function frameDockOffset(board, strings, panel) {
  * XROrigin the controllers are tracked relative to) are refs; `strings` is
  * the Fretboard's row count, for the NeckFrame's size. `picks.current` is a
  * Map of id -> { object, dock }, where `dock` is { to: 'left' | 'right' |
- * null, placed, scale, home, freedAt }; picks must be direct children of the
+ * null, placed, scale }; picks must be direct children of the
  * scene. `spawnPick(hand)` adds a pick docked on that hand, `removePick(id)`
  * takes one away, and `onChord(chord)` selects a chord. `effectAmounts.current`
- * is the FilterFrame's sliders (effect id -> 0..1), which its knobs set, and
+ * is the FilterFrame's sliders (effect id -> 0..1), which its knobs set with
+ * `onEffectSlide(id, amount)`, and
  * `onEffectSwitch(id)` presses a switch there (an effect's, or the reset). Writes which hands
  * hold the NeckFrame into `handles.current.holding`, which touch and hold
  * each side frame into `handles.current.frames` ({ chords, tools }: {
@@ -209,8 +211,7 @@ function frameDockOffset(board, strings, panel) {
  * `handles.current.bending` (cell -> pull) and `bendingHands` (mallet: a hand
  * or 'pick:<id>' -> its cells). `menuDock.current.to` is where the panel is
  * docked: 'left', 'right', 'frame' or null (free), and `placed` whether the
- * player has moved it, and `home` the controller it was last docked on; the
- * panel must be a direct child of the XROrigin.
+ * player has moved it; the panel must be a direct child of the XROrigin.
  */
 export function useControllerGrips({
   board,
@@ -218,6 +219,7 @@ export function useControllerGrips({
   toolFrame,
   filterFrame,
   effectAmounts,
+  onEffectSlide,
   onEffectSwitch,
   picks,
   spawnPick,
@@ -284,35 +286,36 @@ export function useControllerGrips({
     if (panel && !dock.to && !dock.placed && (controllers.left || controllers.right)) dock.to = controllers.left ? 'left' : 'right';
     for (const p of pickList) if (!p.dock.to && !p.dock.placed && (controllers.left || controllers.right)) p.dock.to = controllers.right ? 'right' : 'left';
 
-    const heldBy = (target, id) => HANDS.some((h) => grabs.current[h]?.target === target && (id == null || grabs.current[h].id === id));
+    /** Whatever grip has hold of `target` (and pick `id`) lets go of it, taking nothing more until it's let go. */
+    const letGo = (target, id) => {
+      for (const h of HANDS) if (grabs.current[h]?.target === target && grabs.current[h].id === id) grabs.current[h] = { target: 'none' };
+    };
 
     /**
-     * A double tap of `hand`'s grip: lets go of what's docked on it, where it
-     * is; or, with nothing docked there, calls back the panel if it's home
-     * there, and the pick last let go from there, if neither is held.
+     * A double tap of `hand`'s grip, touching or pointing at `target` ({
+     * target: 'menu' } or { target: 'pick', id }, or null): docks that on
+     * this controller (a pick docked here already is let go where it is). At
+     * nothing, it lets go of whatever is docked on this controller, where it is.
      */
-    const doubleTap = (hand, c) => {
-      const docked = dockedOn(hand);
-      if (dock.to === hand || docked) {
+    const doubleTap = (hand, c, target) => {
+      if (target?.target === 'menu' && panel) {
+        letGo('menu');
+        Object.assign(dock, { to: hand, placed: true });
+      } else if (target?.target === 'pick' && pickById.has(target.id)) {
+        const p = pickById.get(target.id);
+        const mine = dockedOn(hand);
+        if (mine && mine !== p) Object.assign(mine.dock, { to: null, placed: true });
+        letGo('pick', p.id);
+        Object.assign(p.dock, { to: hand, placed: true, scale: _scale.setFromMatrixScale(p.object.matrixWorld).x });
+      } else {
+        const docked = dockedOn(hand);
+        if (dock.to !== hand && !docked) return;
         if (dock.to === hand) Object.assign(dock, { to: null, placed: true });
-        if (docked) Object.assign(docked.dock, { to: null, placed: true, freedAt: performance.now() });
+        if (docked) Object.assign(docked.dock, { to: null, placed: true });
         playClick('detach');
         pulse(c.gamepad, DETACH_PULSE);
         return;
       }
-      let recalled = false;
-      if (panel && dock.home === hand && !heldBy('menu')) {
-        dock.to = hand;
-        recalled = true;
-      }
-      const last = pickList
-        .filter((p) => !p.dock.to && p.dock.home === hand && !heldBy('pick', p.id))
-        .sort((a, b) => (b.dock.freedAt ?? 0) - (a.dock.freedAt ?? 0))[0];
-      if (last) {
-        last.dock.to = hand;
-        recalled = true;
-      }
-      if (!recalled) return;
       playClick('attach');
       pulse(c.gamepad, DOCK_PULSE);
     };
@@ -397,10 +400,7 @@ export function useControllerGrips({
     const slideKnob = (hold, c) => {
       _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
       const amount = THREE.MathUtils.clamp(hold.start + knobAmountAt(objects.filter, _tip, false) - hold.from, 0, 1);
-      if (amount !== effectAmounts.current[hold.effect]) {
-        effectAmounts.current[hold.effect] = amount;
-        setEffectAmount(hold.effect, amount);
-      }
+      if (amount !== effectAmounts.current[hold.effect]) onEffectSlide(hold.effect, amount);
       knobTouching[hold.effect] = true;
       const step = Math.round(amount * KNOB_TICKS);
       if (step !== hold.step) pulse(c.gamepad, BEND_TICK);
@@ -419,14 +419,14 @@ export function useControllerGrips({
     const now = performance.now() / 1000;
     for (const hand of HANDS) {
       const c = controllers[hand];
-      // a grip's second press soon after a short tap is a double tap: it docks or undocks, and takes nothing
+      // a grip's second press soon after a short tap is a double tap: it docks or undocks (see below), and takes nothing
       const tap = (taps.current[hand] ??= { down: false, pressedAt: -1, tappedAt: -Infinity });
       const squeezed = Boolean(c?.squeeze);
+      let doubleTapped = false;
       if (squeezed && !tap.down) {
         if (now - tap.tappedAt < DOUBLE_TAP) {
           tap.tappedAt = -Infinity;
-          doubleTap(hand, c);
-          grabs.current[hand] = { target: 'none' };
+          doubleTapped = true;
         }
         tap.pressedAt = now;
       } else if (!squeezed && tap.down) {
@@ -489,6 +489,20 @@ export function useControllerGrips({
       if (aimed?.target === 'pick') (pickTouching[aimed.id] ??= {})[hand] = true;
       if (SIDE_FRAMES.includes(aimed?.target)) frameTouching[aimed.target][hand] = true;
       if (aimed?.target === 'knob') knobTouching[aimed.effect] = true;
+      if (doubleTapped) {
+        // what it docks: a pick or the panel it's touching (not the panel docked here), else one it points at
+        const panelTouched =
+          panel && isShown(panel) && dock.to !== hand && (touchesPanel(panel, _tip, PANEL_REACH) || touchesPanel(panel, c.position, PANEL_REACH));
+        const target = pickTouched
+          ? { target: 'pick', id: pickTouched.id }
+          : panelTouched
+            ? { target: 'menu' }
+            : aimed?.target === 'pick' || (aimed?.target === 'menu' && dock.to !== hand)
+              ? aimed
+              : null;
+        doubleTap(hand, c, target);
+        grab = grabs.current[hand] = { target: 'none' };
+      }
       if (!c?.squeeze) {
         // letting go of a pick, if no other hand has it, docks it on a controller within reach, or puts it back in the toolbox
         const other = hand === 'left' ? 'right' : 'left';
@@ -656,7 +670,6 @@ export function useControllerGrips({
         const c = controllers[p.dock.to];
         p.object.visible = Boolean(c);
         if (c) carry(p.object, c.rayMatrix, _offset.compose(PICK_DOCK_POSITION, PICK_DOCK_ROTATION, _scale.setScalar(p.dock.scale ?? 1)));
-        p.dock.home = p.dock.to; // the controller it was last docked on, for a double tap to call it back
       }
     }
 
@@ -671,7 +684,5 @@ export function useControllerGrips({
       panel.visible = Boolean(c);
       if (c) carry(panel, c.rayMatrix, controllerDockOffset(panel));
     }
-    // it remembers the controller it was last docked on, for a double tap to call it back
-    if (dock.to === 'left' || dock.to === 'right') dock.home = dock.to;
   });
 }

@@ -83,6 +83,8 @@ function playSelected(chord, mode, instrument) {
   playChord(mode === 'root' ? notes.slice(0, 1) : notes, instrument);
 }
 
+const SLIDER_SAVE_DELAY = 500; // ms a FilterFrame slider is still before it's saved
+
 const describe = (e) => `${e?.name ?? 'Error'}${e?.message ? ` - ${e.message}` : ''}`;
 
 function useMusicState() {
@@ -96,7 +98,7 @@ function useMusicState() {
   const [effects, setEffects] = useState(saved.effects); // the FilterFrame's effects switched in: id -> true (see EFFECTS)
   const [velocity, setVelocity] = useState(saved.velocity); // notes as loud as they're struck hard
   const [playOnSelect, setPlayOnSelect] = useState(saved.playOnSelect); // played on selecting a chord: 'off' | 'root' | 'chord'
-  const [background, setBackground] = useState('skybox'); // 'solid' | 'skybox' | 'passthrough'
+  const [background, setBackground] = useState(saved.background); // 'solid' | 'skybox' | 'passthrough'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [page, setPage] = useState('main'); // the submenu showing, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
@@ -111,10 +113,27 @@ function useMusicState() {
     keyWas.current = key;
     if (interval) setProgression((p) => p.map((chord) => ({ ...chord, root: mod12(chord.root + interval) })));
   }, [key]);
-  useEffect(
-    () => saveSettings({ instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft }),
-    [instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft],
+  // the FilterFrame's sliders, effect id -> 0..1: they move every frame while dragged, so they're no state (see SideFrames.jsx)
+  const effectAmounts = useRef(saved.effectAmounts);
+  const latest = useRef(null); // the settings as they are now, for saving the sliders with
+  latest.current = { instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft };
+  const save = useCallback(() => saveSettings({ ...latest.current, effectAmounts: effectAmounts.current }), []);
+  useEffect(save, [save, instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft]);
+  // a slider moved: heard at once, and saved once it's been still a moment
+  const saveTimer = useRef(null);
+  const slideEffect = useCallback(
+    (id, amount) => {
+      effectAmounts.current[id] = amount;
+      setEffectAmount(id, amount);
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(save, SLIDER_SAVE_DELAY);
+    },
+    [save],
   );
+  // the sliders as they were left
+  useEffect(() => {
+    for (const [id, amount] of Object.entries(effectAmounts.current)) setEffectAmount(id, amount);
+  }, []);
 
   const actions = useMemo(
     () => ({
@@ -175,7 +194,7 @@ function useMusicState() {
     [],
   );
   const state = { instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
-  return [state, actions];
+  return [state, actions, { effectAmounts, slideEffect }];
 }
 
 function useKeyboard(actions, player) {
@@ -513,7 +532,7 @@ function Hud({ menu, notes }) {
 }
 
 export default function App() {
-  const [state, actions] = useMusicState();
+  const [state, actions, { effectAmounts, slideEffect }] = useMusicState();
   const player = useProgression(state.progression, state.bpm, state.beatsPerMeasure);
   useKeyboard(actions, player);
   // the playing (or paused) chord's notes, raised on the Fretboard; stopped, the key's triad is
@@ -544,19 +563,14 @@ export default function App() {
   useEffect(() => {
     for (const [id, on] of Object.entries(state.effects)) setEffectOn(id, on);
   }, [state.effects]);
-  // the FilterFrame's sliders, effect id -> 0..1: they move every frame while dragged, so they're no state (see SideFrames.jsx)
-  const effectAmounts = useRef(Object.fromEntries(EFFECTS.map((e) => [e.id, e.amount])));
   // a FilterFrame switch pressed: an effect's switches it in or out; Reset puts every effect back as it started, switched out
   const pressEffectSwitch = useCallback(
     (id) => {
       if (id !== RESET_EFFECTS) return actions.toggleEffect(id);
-      for (const { id: effect, amount } of EFFECTS) {
-        effectAmounts.current[effect] = amount;
-        setEffectAmount(effect, amount);
-      }
+      for (const { id: effect, amount } of EFFECTS) slideEffect(effect, amount);
       actions.clearEffects();
     },
-    [actions],
+    [actions, slideEffect],
   );
   // the beat (for the echo and quantizing) and how finely notes are quantized
   useEffect(() => setBeatGrid({ beat: 60 / state.bpm, division: state.quantize }), [state.bpm, state.quantize]);
@@ -708,6 +722,7 @@ export default function App() {
             selectedChord={shownChord}
             onChord={chooseChord}
             effectAmounts={effectAmounts}
+            onEffectSlide={slideEffect}
             onEffectSwitch={pressEffectSwitch}
             state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
             menu={menu}

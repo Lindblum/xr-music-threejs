@@ -45,7 +45,7 @@ const PICK_ROTATION = [0, -0.3, 0.25];
 // grip takes it to dock on either controller or the NeckFrame (see Grab.jsx).
 
 /** Where the first pick is docked: nowhere yet, until controllers show up (see Grab.jsx). */
-const firstPickDock = () => ({ to: null, placed: false, scale: 1, home: 'right' });
+const firstPickDock = () => ({ to: null, placed: false, scale: 1 });
 
 const SKY_URL = `${import.meta.env.BASE_URL}img/skybox.jpg`;
 
@@ -245,9 +245,10 @@ function useTouches(cells, instrument, velocitySensitive) {
  * triad); `chart` the key's chord chart for the ChordFrame, `selectedChord`
  * the chord raised, if it's on the chart, and `onChord(chord)` a chord chosen
  * there. `effectAmounts.current` is the FilterFrame's sliders (effect id ->
- * 0..1), and `onEffectSwitch(id)` presses a switch there: an effect's, or RESET_EFFECTS.
+ * 0..1), set by `onEffectSlide(id, amount)`, and `onEffectSwitch(id)` presses a
+ * switch there: an effect's, or RESET_EFFECTS.
  */
-export default function Scene({ cells, chord, chart, selectedChord, onChord, effectAmounts, onEffectSwitch, state, menu, phone, holding, onExitXR }) {
+export default function Scene({ cells, chord, chart, selectedChord, onChord, effectAmounts, onEffectSlide, onEffectSwitch, state, menu, phone, holding, onExitXR }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -265,14 +266,14 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, eff
   const chordFrame = useRef(null);
   const toolFrame = useRef(null);
   const filterFrame = useRef(null);
-  const menuDock = useRef({ to: null, placed: false, home: 'left' }); // where the panel is docked: see Grab.jsx
+  const menuDock = useRef({ to: null, placed: false }); // where the panel is docked: see Grab.jsx
   // the picks: id -> { object, dock }, where each is docked (see Grab.jsx); ids, to draw them
   const picks = useRef(new Map([[0, { object: null, dock: firstPickDock() }]]));
   const nextPickId = useRef(1);
   const [pickIds, setPickIds] = useState([0]);
   const spawnPick = useCallback((hand) => {
     const id = nextPickId.current++;
-    picks.current.set(id, { object: null, dock: { to: hand, placed: true, scale: 1, home: hand } });
+    picks.current.set(id, { object: null, dock: { to: hand, placed: true, scale: 1 } });
     setPickIds((ids) => [...ids, id]);
   }, []);
   const removePick = useCallback((id) => {
@@ -325,7 +326,7 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, eff
         object.visible = true;
       }
     }
-    if (!inSession) Object.assign(dock, { to: null, placed: false, home: 'left' });
+    if (!inSession) Object.assign(dock, { to: null, placed: false });
     if (inSession && !hasControllers && (dock.to === 'left' || dock.to === 'right')) {
       dock.to = null;
       const panel = menuPanel.current;
@@ -386,6 +387,7 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, eff
         position={filterFrameStart}
         effects={state.effects}
         amounts={effectAmounts}
+        onSlide={onEffectSlide}
         onSwitch={onEffectSwitch}
         handles={handles}
         hoverEnabled={!immersive}
@@ -418,6 +420,7 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, eff
         toolFrame={toolFrame}
         filterFrame={filterFrame}
         effectAmounts={effectAmounts}
+        onEffectSlide={onEffectSlide}
         onEffectSwitch={onEffectSwitch}
         picks={picks}
         spawnPick={spawnPick}

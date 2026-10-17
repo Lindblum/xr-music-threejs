@@ -5,7 +5,7 @@
 
 import { EFFECTS, INSTRUMENTS } from './audio.js';
 import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
-import { BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE } from './menu.js';
+import { BACKGROUNDS, BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE } from './menu.js';
 
 const COOKIE = 'xr-music-settings';
 const MAX_AGE = 60 * 60 * 24 * 365; // a year, renewed on every change
@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS = {
   tuning: TUNINGS[0],
   quantize: 0, // off
   effects: Object.fromEntries(EFFECTS.filter((e) => e.toggle).map((e) => [e.id, false])), // the FilterFrame's effects switched in: see EFFECTS
+  effectAmounts: Object.fromEntries(EFFECTS.map((e) => [e.id, e.amount])), // ...and where each one's slider is, 0..1
+  background: 'skybox', // see BACKGROUNDS
   velocity: false, // notes as loud as they're struck hard
   playOnSelect: 'off', // what's played when a chord in the queue is selected or landed on: 'off' | 'root' | 'chord'
   bpm: 100,
@@ -61,6 +63,14 @@ export function loadSettings() {
     key: pick(isRoot(saved.key), saved.key, d.key),
     tuning: TUNINGS.find((t) => t.id === saved.tuning) ?? d.tuning,
     quantize: pick(QUANTIZE.some((q) => q.division === saved.quantize), saved.quantize, d.quantize),
+    // kept in EFFECTS order, to two places
+    effectAmounts: Object.fromEntries(
+      EFFECTS.map((e, i) => {
+        const v = Array.isArray(saved.effectAmounts) ? saved.effectAmounts[i] : null;
+        return [e.id, typeof v === 'number' && v >= 0 && v <= 1 ? v : d.effectAmounts[e.id]];
+      }),
+    ),
+    background: pick(BACKGROUNDS.includes(saved.background), saved.background, d.background),
     // kept as the ids of those switched in (the echo was once a setting of its own)
     effects: Object.fromEntries(
       Object.keys(d.effects).map((id) => [id, Array.isArray(saved.effects) ? saved.effects.includes(id) : id === 'echo' && Boolean(saved.echo)]),
@@ -86,6 +96,8 @@ export function saveSettings(s) {
     tuning: s.tuning.id,
     quantize: s.quantize,
     effects: EFFECTS.filter((e) => s.effects[e.id]).map((e) => e.id),
+    effectAmounts: EFFECTS.map((e) => Math.round((s.effectAmounts[e.id] ?? e.amount) * 100) / 100),
+    background: s.background,
     playOnSelect: s.playOnSelect,
     velocity: s.velocity,
     bpm: s.bpm,

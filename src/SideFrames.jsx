@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { FRAME_BORDER, FRAME_COLOR, frameGeometry, frameSize, touchesMoulding } from './Fretboard.jsx';
 import { chordName, noteCss, noteRgb, sameChord } from './music.js';
 import { PICK_COLOR, pickGeometry } from './Pick.jsx';
-import { EFFECTS, setEffectAmount } from './audio.js';
+import { EFFECTS } from './audio.js';
 
 // The frames that start beside the NeckFrame: each its own handle, which a
 // grip moves, turns and scales as the NeckFrame does the Fretboard (see
@@ -436,14 +436,14 @@ function ResetSwitch({ x, handles, hoverEnabled, onSwitch }) {
 /**
  * The FilterFrame, in `groupRef`. `effects` says which switchable effects
  * are in (id -> true), `amounts.current` is each effect's slider (id ->
- * 0..1), which its knob follows, and `onSwitch(id)` presses a switch: an
- * effect's, or RESET_EFFECTS.
+ * 0..1), which its knob follows and `onSlide(id, amount)` sets, and
+ * `onSwitch(id)` presses a switch: an effect's, or RESET_EFFECTS.
  * Knobs and switches glow while `handles.current.effectKnobs` and
  * `effectSwitches` (id -> true) say a hand touches or holds them. With
  * `hoverEnabled` the mouse drags a knob, anywhere along its track (a press on
  * the track jumps it there), and clicks the switches.
  */
-export function FilterFrame({ groupRef, effects, amounts, onSwitch, handles, hoverEnabled, ...props }) {
+export function FilterFrame({ groupRef, effects, amounts, onSlide, onSwitch, handles, hoverEnabled, ...props }) {
   const controls = useThree((s) => s.controls);
   const camera = useThree((s) => s.camera);
   const canvas = useThree((s) => s.gl.domElement);
@@ -457,8 +457,7 @@ export function FilterFrame({ groupRef, effects, amounts, onSwitch, handles, hov
     _normal.set(0, 0, 1).transformDirection(frame.matrixWorld);
     _plane.setFromNormalAndCoplanarPoint(_normal, frame.getWorldPosition(_onPlane));
     if (!ray.intersectPlane(_plane, _onPlane)) return;
-    amounts.current[id] = knobAmountAt(frame, _onPlane);
-    setEffectAmount(id, amounts.current[id]);
+    onSlide(id, knobAmountAt(frame, _onPlane));
   };
   // a drag follows the pointer anywhere on the page, until the button is let go; meanwhile the view stays still
   useEffect(() => {

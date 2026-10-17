@@ -5,8 +5,8 @@ import { applyTwoHands, readControllers } from './grip.js';
 import { SPACING, frameSize, nearFrame, touchedCells, touchedCellsByPoints, touchesFrame } from './Fretboard.jsx';
 import { RADIUS, TIP_FORWARD, pulse } from './Touch.jsx';
 import { PICK_DOCK_POSITION, PICK_DOCK_ROTATION, pickPoints, touchesPick } from './Pick.jsx';
-import { chordOfNode, touchesSideFrame } from './SideFrames.jsx';
-import { playClick } from './audio.js';
+import { chordOfNode, knobAmountAt, touchesFilterKnob, touchesSideFrame } from './SideFrames.jsx';
+import { playClick, setFilterAmount } from './audio.js';
 
 // Touch controller grips. A grip pressed while that controller points at the
 // menu panel, or touches it, takes it, held rigidly in the hand, off whatever it was docked
@@ -31,12 +31,17 @@ import { playClick } from './audio.js';
 // count). Pointing at a ChordFrame node and pulling the trigger selects its
 // chord, as touching it does (see Touch.jsx).
 //
+// The FilterFrame's knob (see SideFrames.jsx), taken by a grip (touching it,
+// or pointing at it) or by the trigger pointed at it, slides up and down its
+// track as the hand moves along it, ticking every tenth, and stays where
+// it's let go.
+//
 // A grip also takes what the controller's ray points at, at any distance:
-// a frame, a pick or the panel, whichever is nearest (and glows, so you can
+// a frame, the FilterFrame's knob, a pick or the panel, whichever is nearest (and glows, so you can
 // see what it'll take); something touched comes first.
 //
 // A grip pressed with the controller's tip on a pick, or on a frame's
-// moulding (the NeckFrame, the ChordFrame or the ToolFrame), takes hold of
+// moulding (the NeckFrame, the ChordFrame, the ToolFrame or the FilterFrame), takes hold of
 // it: with one hand it follows that hand rigidly, moving and turning with
 // it; with both hands on it (as in Tilt Brush) it scales with the distance
 // between them and turns with the line between them. The NeckFrame carries
@@ -49,12 +54,13 @@ import { playClick } from './audio.js';
 
 const HANDS = ['left', 'right'];
 const GRAB_RADIUS = 0.04; // a little more forgiving than the mallet
-const FRAMES = ['board', 'chords', 'tools']; // what grips carry by its frame: the Fretboard, the ChordFrame, the ToolFrame
-const SIDE_FRAMES = ['chords', 'tools'];
-const MOULDINGS = { board: 'NeckFrame', chords: 'ChordFrameMoulding', tools: 'ToolFrameMoulding' };
+const FRAMES = ['board', 'chords', 'tools', 'filter']; // what grips carry by its frame: the Fretboard, and the side frames
+const SIDE_FRAMES = ['chords', 'tools', 'filter'];
+const MOULDINGS = { board: 'NeckFrame', chords: 'ChordFrameMoulding', tools: 'ToolFrameMoulding', filter: 'FilterFrameMoulding' };
 const BEND_MAX = 7; // frets (semitones) a note bends either way
 const BEND_PULSE = [0.5, 30]; // on taking hold of a note
 const BEND_TICK = [0.3, 15]; // at each whole semitone of bend
+const KNOB_TICKS = 10; // the FilterFrame's knob ticks this many times end to end
 const PICK_DOCK_REACH = 0.15; // metres from the held pick's centre to the other controller, to dock there
 const TOOLBOX_REACH = 0.08; // ...or to the ToolFrame's pick, to go back in the toolbox
 const PANEL_REACH = 0.05; // a controller this close to the panel's face takes it, as well as one pointing at it
@@ -182,18 +188,20 @@ function frameDockOffset(board, strings, panel) {
 
 /**
  * Grip controls for the Fretboard, the side frames, the picks and the menu
- * panel. `board`, `chordFrame`, `toolFrame`, `menu` and `origin` (the
+ * panel. `board`, `chordFrame`, `toolFrame`, `filterFrame`, `menu` and `origin` (the
  * XROrigin the controllers are tracked relative to) are refs; `strings` is
  * the Fretboard's row count, for the NeckFrame's size. `picks.current` is a
  * Map of id -> { object, dock }, where `dock` is { to: 'left' | 'right' |
  * null, placed, scale, home, freedAt }; picks must be direct children of the
  * scene. `spawnPick(hand)` adds a pick docked on that hand, `removePick(id)`
- * takes one away, and `onChord(chord)` selects a chord. Writes which hands
+ * takes one away, and `onChord(chord)` selects a chord. `filterAmount.current`
+ * is the FilterFrame's slider (0..1), which its knob sets. Writes which hands
  * hold the NeckFrame into `handles.current.holding`, which touch and hold
  * each side frame into `handles.current.frames` ({ chords, tools }: {
  * touching, holding }), and each pick into `handles.current.picks` (id -> {
  * touching, holding, docked }), which touch or point at the ToolFrame's pick
- * into `handles.current.toolTouching`, what each free hand's ray points at
+ * into `handles.current.toolTouching`, which touch or hold the FilterFrame's
+ * knob into `handles.current.filterKnob`, what each free hand's ray points at
  * into `handles.current.aiming`, and the notes being bent into
  * `handles.current.bending` (cell -> pull) and `bendingHands` (mallet: a hand
  * or 'pick:<id>' -> its cells). `menuDock.current.to` is where the panel is
@@ -201,9 +209,24 @@ function frameDockOffset(board, strings, panel) {
  * player has moved it, and `home` the controller it was last docked on; the
  * panel must be a direct child of the XROrigin.
  */
-export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnPick, removePick, onChord, menu, menuDock, origin, strings, handles }) {
+export function useControllerGrips({
+  board,
+  chordFrame,
+  toolFrame,
+  filterFrame,
+  filterAmount,
+  picks,
+  spawnPick,
+  removePick,
+  onChord,
+  menu,
+  menuDock,
+  origin,
+  strings,
+  handles,
+}) {
   const gl = useThree((s) => s.gl);
-  // hand -> { target: 'board' | 'chords' | 'tools' | 'none' } | { target: 'pick', id, zone } | { target: 'menu', offset, point, size, grow, zone } | { target: 'note', ... }
+  // hand -> { target: a frame | 'none' } | { target: 'pick', id, zone } | { target: 'knob', from, start, step } | { target: 'menu', ... } | { target: 'note', ... }
   const grabs = useRef({});
   // per carried thing (a frame, or 'pick:<id>'): { oneHand: { hand, offset } while a single hand carries it, last: the holding hands' positions last frame }
   const carried = useRef({});
@@ -211,6 +234,7 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
   const taps = useRef({}); // hand -> { down, pressedAt, tappedAt }, for double taps
   const tools = useRef({}); // hand -> its tip was on the ToolFrame's pick last frame
   const triggers = useRef({}); // hand -> its trigger was down last frame
+  const triggerKnob = useRef({}); // hand -> { from, start, step } while its trigger slides the FilterFrame's knob
 
   useFrame((_, dt, frame) => {
     const referenceSpace = gl.xr.getReferenceSpace();
@@ -224,11 +248,13 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
       handles.current.bendingHands = {};
       handles.current.aiming = {};
       handles.current.toolTouching = {};
+      handles.current.filterKnob = {};
+      triggerKnob.current = {};
       return;
     }
     const controllers = readControllers(frame, referenceSpace, origin.current);
     const fretboard = board.current;
-    const objects = { board: fretboard, chords: chordFrame.current, tools: toolFrame.current };
+    const objects = { board: fretboard, chords: chordFrame.current, tools: toolFrame.current, filter: filterFrame.current };
     const panel = menu.current;
     const dock = menuDock.current;
     const pickList = [...picks.current].filter(([, p]) => p.object).map(([id, p]) => ({ id, object: p.object, dock: p.dock }));
@@ -237,12 +263,14 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
     const holding = Object.fromEntries(FRAMES.map((target) => [target, {}])); // target -> hand -> controller, for the hands carrying it
     const pickHolding = {}; // pick id -> hand -> controller
     const pickTouching = {}; // pick id -> hand -> true
-    const frameTouching = { chords: {}, tools: {} }; // side frame -> hand -> true
+    const frameTouching = Object.fromEntries(SIDE_FRAMES.map((target) => [target, {}])); // side frame -> hand -> true
     const bending = {}; // cell index -> how far it's pulled along the frets, in board metres
     const bendingHands = {}; // hand -> the cell it's bending
     const aiming = {}; // hand -> what its ray would grab: 'menu' | 'pick' | a frame
     const toolTouching = {}; // hand -> its tip is on, or its ray at, the ToolFrame's pick
     const toolPick = objects.tools?.getObjectByName('ToolPick');
+    const knob = objects.filter?.getObjectByName('FilterKnob');
+    const knobTouching = {}; // hand -> its tip is on, its ray at, or its grip or trigger holding the FilterFrame's knob
     const aimHits = [];
 
     // the panel starts on the left controller and the first pick on the right (or whichever there is), until moved
@@ -297,6 +325,10 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
         THREE.Mesh.prototype.raycast.call(p.object, raycaster, aimHits);
         if (aimHits.length) candidates.push({ target: 'pick', id: p.id, hit: aimHits.sort((a, b) => a.distance - b.distance)[0] });
       }
+      if (knob) {
+        const [hit] = raycaster.intersectObject(knob, false);
+        if (hit) candidates.push({ target: 'knob', hit });
+      }
       for (const target of FRAMES) {
         const moulding = objects[target]?.getObjectByName(MOULDINGS[target]);
         const [hit] = moulding ? raycaster.intersectObject(moulding, false) : [];
@@ -307,7 +339,8 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
 
     /**
      * What `c`'s ray points at that its trigger selects: { target: 'chord',
-     * chord } or { target: 'tool' }, or null (a panel in front blocks it).
+     * chord }, { target: 'tool' } or { target: 'knob' }, or null (a panel in
+     * front blocks it).
      */
     const triggerAim = (c) => {
       raycaster.ray.copy(c.ray);
@@ -327,6 +360,10 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
         THREE.Mesh.prototype.raycast.call(toolPick, raycaster, aimHits);
         if (aimHits.length) candidates.push({ target: 'tool', hit: aimHits.sort((a, b) => a.distance - b.distance)[0] });
       }
+      if (knob) {
+        const [hit] = raycaster.intersectObject(knob, false);
+        if (hit) candidates.push({ target: 'knob', hit });
+      }
       const nearest = candidates.sort((a, b) => a.hit.distance - b.hit.distance)[0];
       return nearest && nearest.target !== 'menu' ? nearest : null;
     };
@@ -337,6 +374,25 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
       spawnPick(hand);
       playClick('attach');
       pulse(c.gamepad, DOCK_PULSE);
+    };
+
+    /** Taking hold of the FilterFrame's knob with `c`'s tip at `_tip`: where the slide starts from. */
+    const holdKnob = () => {
+      const start = filterAmount.current;
+      return { from: knobAmountAt(objects.filter, _tip, false), start, step: Math.round(start * KNOB_TICKS) };
+    };
+
+    /** One frame of sliding the knob held in `hold` by `c`: along the track as far as the hand has moved since. */
+    const slideKnob = (hold, c) => {
+      _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
+      const amount = THREE.MathUtils.clamp(hold.start + knobAmountAt(objects.filter, _tip, false) - hold.from, 0, 1);
+      if (amount !== filterAmount.current) {
+        filterAmount.current = amount;
+        setFilterAmount(amount);
+      }
+      const step = Math.round(amount * KNOB_TICKS);
+      if (step !== hold.step) pulse(c.gamepad, BEND_TICK);
+      hold.step = step;
     };
 
     /** Where the held panel would dock if let go now: the other hand, 'frame' or null. */
@@ -383,6 +439,8 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
         if (toolTouching[hand] && !tools.current[hand]) takeFromToolbox(hand, c);
       }
       tools.current[hand] = Boolean(toolTouching[hand]);
+      const knobTouched = Boolean(c && knob && touchesFilterKnob(knob, _tip, GRAB_RADIUS));
+      if (knobTouched) knobTouching[hand] = true;
       // pulling the trigger at a chord node selects its chord; at the ToolFrame's pick, takes a new pick; pointing at that, it glows
       const triggerTarget = c ? triggerAim(c) : null;
       if (triggerTarget?.target === 'tool' && !c.squeeze) toolTouching[hand] = true;
@@ -392,13 +450,22 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
           onChord(triggerTarget.chord);
           pulse(c.gamepad, SELECT_PULSE);
         } else if (triggerTarget?.target === 'tool') takeFromToolbox(hand, c);
+        else if (triggerTarget?.target === 'knob' && !grab) triggerKnob.current[hand] = holdKnob();
       }
       triggers.current[hand] = triggered;
+      // the trigger slides the knob it took for as long as it's held
+      if (!triggered || !objects.filter) delete triggerKnob.current[hand];
+      if (triggerKnob.current[hand]) {
+        slideKnob(triggerKnob.current[hand], c);
+        knobTouching[hand] = true;
+      }
+      if (triggerTarget?.target === 'knob') knobTouching[hand] = true;
       // what a grip from this hand would take by pointing, unless it's holding something; it glows, as when touched
       const aimed = c && !(c.squeeze && grab) ? aim(hand, c) : null;
       if (aimed) aiming[hand] = aimed.target;
       if (aimed?.target === 'pick') (pickTouching[aimed.id] ??= {})[hand] = true;
       if (SIDE_FRAMES.includes(aimed?.target)) frameTouching[aimed.target][hand] = true;
+      if (aimed?.target === 'knob') knobTouching[hand] = true;
       if (!c?.squeeze) {
         // letting go of a pick, if no other hand has it, docks it on a controller within reach, or puts it back in the toolbox
         const other = hand === 'left' ? 'right' : 'left';
@@ -450,6 +517,7 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
         else if (pickNotes.length) take = { target: 'note', indices: pickNotes, byPick: ownPick.id };
         else if (menuTouched) take = { target: 'menu', point: _tip };
         else if (noteTouched.length) take = { target: 'note', indices: noteTouched.slice(0, 1) };
+        else if (knobTouched) take = { target: 'knob' };
         else if (neckTouched) take = { target: 'board' };
         else if (sideTouched) take = { target: sideTouched };
         else if (aimed) take = { target: aimed.target, id: aimed.id, point: aimed.hit.point };
@@ -488,6 +556,9 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
           // bent from where the hand is now
           grab = { target: 'note', indices: take.indices, byPick: take.byPick ?? null, from: fretboard.worldToLocal(_tip.clone()).x, step: 0 };
           pulse(c.gamepad, BEND_PULSE);
+        } else if (take?.target === 'knob' && objects.filter && !triggerKnob.current[hand]) {
+          grab = { target: 'knob', ...holdKnob() };
+          pulse(c.gamepad, BEND_PULSE);
         } else if (FRAMES.includes(take?.target)) {
           grab = { target: take.target };
           pulse(c.gamepad, GRAB_PULSE);
@@ -498,6 +569,10 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
       }
       if (FRAMES.includes(grab.target)) holding[grab.target][hand] = c;
       else if (grab.target === 'pick') (pickHolding[grab.id] ??= {})[hand] = c;
+      else if (grab.target === 'knob' && objects.filter) {
+        slideKnob(grab, c);
+        knobTouching[hand] = true;
+      }
       else if (grab.target === 'note' && fretboard) {
         // how far the hand has moved along the frets since it took hold, as far as BEND_MAX either way
         _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
@@ -530,6 +605,7 @@ export function useControllerGrips({ board, chordFrame, toolFrame, picks, spawnP
     );
     handles.current.aiming = aiming;
     handles.current.toolTouching = flags(toolTouching);
+    handles.current.filterKnob = flags(knobTouching);
     handles.current.bending = bending;
     handles.current.bendingHands = bendingHands;
     const carryState = (key) => (carried.current[key] ??= { oneHand: null, last: {} });

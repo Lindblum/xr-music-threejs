@@ -3,7 +3,7 @@
 // serves every project from one domain. Anything missing or unrecognised in
 // it falls back to the default.
 
-import { INSTRUMENTS } from './audio.js';
+import { FILTERS, INSTRUMENTS } from './audio.js';
 import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
 import { BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE } from './menu.js';
 
@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = {
   tuning: TUNINGS[0],
   echo: false,
   quantize: 0, // off
+  filter: 'off', // see FILTERS
   velocity: false, // notes as loud as they're struck hard
   playOnSelect: 'off', // what's played when a chord in the queue is selected or landed on: 'off' | 'root' | 'chord'
   bpm: 100,
@@ -62,6 +63,7 @@ export function loadSettings() {
     tuning: TUNINGS.find((t) => t.id === saved.tuning) ?? d.tuning,
     echo: Boolean(saved.echo),
     quantize: pick(QUANTIZE.some((q) => q.division === saved.quantize), saved.quantize, d.quantize),
+    filter: pick(FILTERS.some((f) => f.id === saved.filter), saved.filter, d.filter),
     velocity: Boolean(saved.velocity),
     // (once a plain on / off: on was the whole chord)
     playOnSelect:
@@ -83,6 +85,7 @@ export function saveSettings(s) {
     tuning: s.tuning.id,
     echo: s.echo,
     quantize: s.quantize,
+    filter: s.filter,
     playOnSelect: s.playOnSelect,
     velocity: s.velocity,
     bpm: s.bpm,

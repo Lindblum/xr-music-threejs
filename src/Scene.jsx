@@ -7,7 +7,7 @@ import { FRETS, Fretboard } from './Fretboard.jsx';
 import { GazePlay, TouchPlay } from './Touch.jsx';
 import { useControllerGrips } from './Grab.jsx';
 import { Pick } from './Pick.jsx';
-import { CHORD_FRAME_OFFSET, ChordFrame, TOOL_FRAME_OFFSET, ToolFrame } from './SideFrames.jsx';
+import { CHORD_FRAME_OFFSET, ChordFrame, FilterFrame, TOOL_FRAME_OFFSET, ToolFrame, filterFrameOffsetY } from './SideFrames.jsx';
 import { XRMenuPanel } from './XRMenuPanel.jsx';
 import { SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
@@ -23,6 +23,8 @@ const BOARD_POSITION = [0, 1, -0.5];
 // The ChordFrame and ToolFrame start either side of it, each its own handle (see SideFrames.jsx).
 const CHORD_FRAME_POSITION = [BOARD_POSITION[0] + CHORD_FRAME_OFFSET, BOARD_POSITION[1], BOARD_POSITION[2]];
 const TOOL_FRAME_POSITION = [BOARD_POSITION[0] + TOOL_FRAME_OFFSET, BOARD_POSITION[1], BOARD_POSITION[2]];
+// The FilterFrame starts centred below it, clear of its frame for however many strings it has.
+const filterFramePosition = (strings) => [BOARD_POSITION[0], BOARD_POSITION[1] + filterFrameOffsetY(strings), BOARD_POSITION[2]];
 // The windowed view looks a little left of centre, so the board clears the panel.
 export const ORBIT_TARGET = [-0.5, 1, -0.5];
 // Without VR controllers (hand tracking, phones) the XR panel starts off to
@@ -242,9 +244,9 @@ function useTouches(cells, instrument, velocitySensitive) {
  * `chord`: the pitch classes the Fretboard raises (or null for the key's
  * triad); `chart` the key's chord chart for the ChordFrame, `selectedChord`
  * the chord raised, if it's on the chart, and `onChord(chord)` a chord chosen
- * there.
+ * there. `filterAmount.current` is the FilterFrame's slider (0..1).
  */
-export default function Scene({ cells, chord, chart, selectedChord, onChord, state, menu, phone, holding, onExitXR }) {
+export default function Scene({ cells, chord, chart, selectedChord, onChord, filterAmount, state, menu, phone, holding, onExitXR }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -261,6 +263,7 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, sta
   const menuPanel = useRef(null);
   const chordFrame = useRef(null);
   const toolFrame = useRef(null);
+  const filterFrame = useRef(null);
   const menuDock = useRef({ to: null, placed: false, home: 'left' }); // where the panel is docked: see Grab.jsx
   // the picks: id -> { object, dock }, where each is docked (see Grab.jsx); ids, to draw them
   const picks = useRef(new Map([[0, { object: null, dock: firstPickDock() }]]));
@@ -278,6 +281,8 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, sta
   // hands on the frames, and touching and holding the picks: see Touch.jsx and Grab.jsx
   const handles = useRef({ touching: {}, holding: {}, frames: {}, picks: {} });
   const strings = cells.length / FRETS;
+  // where the FilterFrame first appears: fixed, so a new tuning never moves it out from under a hand
+  const [filterFrameStart] = useState(() => filterFramePosition(strings));
   const [touches, touch, press, bend] = useTouches(cells, state.instrument, state.velocity);
   const hoverMouse = useCallback((index, velocity) => press('mouse', index, velocity), [press]);
 
@@ -292,6 +297,7 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, sta
       [board.current, BOARD_POSITION],
       [chordFrame.current, CHORD_FRAME_POSITION],
       [toolFrame.current, TOOL_FRAME_POSITION],
+      [filterFrame.current, filterFramePosition(strings)],
     ]) {
       if (!object) continue;
       object.position.fromArray(position);
@@ -374,6 +380,14 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, sta
         hoverEnabled={!immersive}
         onSelect={onChord}
       />
+      <FilterFrame
+        groupRef={filterFrame}
+        position={filterFrameStart}
+        filter={state.filter}
+        amount={filterAmount}
+        handles={handles}
+        hoverEnabled={!immersive}
+      />
       {/* picks only dock on controllers */}
       {inSession && !phone && <ToolFrame groupRef={toolFrame} position={TOOL_FRAME_POSITION} handles={handles} />}
       {inSession &&
@@ -400,6 +414,8 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, sta
         board={board}
         chordFrame={chordFrame}
         toolFrame={toolFrame}
+        filterFrame={filterFrame}
+        filterAmount={filterAmount}
         picks={picks}
         spawnPick={spawnPick}
         removePick={removePick}

@@ -8,7 +8,7 @@ import { MENU_TOGGLE } from './XRMenuPanel.jsx';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { buildCells } from './Fretboard.jsx';
-import { INSTRUMENTS, loadInstrument, playChord, setBeatGrid, setEcho, unlockAudio } from './audio.js';
+import { INSTRUMENTS, loadInstrument, playChord, setBeatGrid, setEcho, setFilter, unlockAudio } from './audio.js';
 import { SCALES, TUNINGS, builtChord, chordNotes, chordPitchClasses, keyChordChart, mod12, stockChords } from './music.js';
 import { useProgression } from './progression.js';
 import { loadSettings, saveSettings } from './settings.js';
@@ -93,6 +93,7 @@ function useMusicState() {
   const [tuning, setTuning] = useState(saved.tuning);
   const [echo, setEchoOn] = useState(saved.echo);
   const [quantize, setQuantize] = useState(saved.quantize); // steps per beat notes wait for (0: off)
+  const [filter, setFilterId] = useState(saved.filter); // the filter every note passes through: see FILTERS
   const [velocity, setVelocity] = useState(saved.velocity); // notes as loud as they're struck hard
   const [playOnSelect, setPlayOnSelect] = useState(saved.playOnSelect); // played on selecting a chord: 'off' | 'root' | 'chord'
   const [background, setBackground] = useState('skybox'); // 'solid' | 'skybox' | 'passthrough'
@@ -111,8 +112,8 @@ function useMusicState() {
     if (interval) setProgression((p) => p.map((chord) => ({ ...chord, root: mod12(chord.root + interval) })));
   }, [key]);
   useEffect(
-    () => saveSettings({ instrument, scale, key, tuning, echo, quantize, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft }),
-    [instrument, scale, key, tuning, echo, quantize, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft],
+    () => saveSettings({ instrument, scale, key, tuning, echo, quantize, filter, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft }),
+    [instrument, scale, key, tuning, echo, quantize, filter, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft],
   );
 
   const actions = useMemo(
@@ -135,6 +136,7 @@ function useMusicState() {
         ({
           instrument: setInstrument,
           quantize: setQuantize,
+          filter: setFilterId,
           playOnSelect: setPlayOnSelect,
           scale: setScale,
           key: setKey,
@@ -170,7 +172,7 @@ function useMusicState() {
     }),
     [],
   );
-  const state = { instrument, scale, key, tuning, echo, quantize, velocity, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
+  const state = { instrument, scale, key, tuning, echo, quantize, filter, velocity, playOnSelect, background, menuOpen, page, dropdown, bpm, beatsPerMeasure, progression, draft };
   return [state, actions];
 }
 
@@ -538,6 +540,9 @@ export default function App() {
   useAudioUnlock();
   const sample = useInstrument(state.instrument);
   useEffect(() => setEcho(state.echo), [state.echo]);
+  useEffect(() => setFilter(state.filter), [state.filter]);
+  // the FilterFrame's slider, 0..1: it moves every frame while dragged, so it's no state (see SideFrames.jsx)
+  const filterAmount = useRef(0.5);
   // the beat (for the echo and quantizing) and how finely notes are quantized
   useEffect(() => setBeatGrid({ beat: 60 / state.bpm, division: state.quantize }), [state.bpm, state.quantize]);
   const cells = useMemo(() => buildCells(state.tuning, state.key, state.scale), [state.tuning, state.key, state.scale]);
@@ -688,6 +693,7 @@ export default function App() {
             chart={chart}
             selectedChord={shownChord}
             onChord={chooseChord}
+            filterAmount={filterAmount}
             state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
             menu={menu}
             onExitXR={() => selectView('normal')}

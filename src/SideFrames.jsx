@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FRAME_BORDER, FRAME_COLOR, frameGeometry, frameSize, touchesMoulding } from './Fretboard.jsx';
 import { chordName, noteCss, noteRgb, sameChord } from './music.js';
 import { PICK_COLOR, pickGeometry } from './Pick.jsx';
+import { FILTERS, setFilterAmount } from './audio.js';
 
 // The frames that start beside the NeckFrame: each its own handle, which a
 // grip moves, turns and scales as the NeckFrame does the Fretboard (see
@@ -20,6 +21,11 @@ import { PICK_COLOR, pickGeometry } from './Pick.jsx';
 // touching it, or pointing at it and pulling the trigger, with a controller
 // that has no pick docked on it and isn't gripping anything gives that
 // controller a new pick; a pick let go on it goes back in (see Grab.jsx).
+//
+// The FilterFrame, below: a slider for the filter (see audio.js), like a wah
+// pedal stood on end. Its knob, taken by a grip or the trigger (or dragged
+// with the mouse), slides up and down the track and stays where it's let go:
+// bottom is heel down, top toe down. The frame dims while the filter is off.
 
 const GAP = 0.04; // between the NeckFrame and a side frame, to start with
 const MARGIN = 0.01; // between the nodes and their frame
@@ -40,6 +46,17 @@ const CHORD_INNER_X = COLUMN + MARGIN; // half the ChordFrame's opening, across
 const TOOL_INNER = 0.05; // half the ToolFrame's opening, each way
 const TOOL_PICK_SCALE = 0.6; // of a full-size pick
 const TOOL_PICK_RAISE = 0.02;
+const FILTER_INNER_X = 0.06; // half the FilterFrame's opening, across...
+const FILTER_INNER_Y = 0.2; // ...and down
+const TRACK_CENTRE = -0.03; // the track's middle, below the label
+const TRAVEL = 0.26; // how far the knob's centre slides, end to end
+const TRACK = [0.012, TRAVEL + 0.04, 0.01];
+const KNOB = [0.08, 0.04, 0.04];
+const KNOB_RAISE = 0.03;
+const LABEL_Y = 0.155;
+const LABEL_SIZE = [0.11, 0.055];
+const FILTER_ON = '#e0a030';
+const FILTER_OFF = '#4a4a4a';
 
 /**
  * Where each side frame's centre starts, across from the Fretboard's
@@ -48,6 +65,9 @@ const TOOL_PICK_RAISE = 0.02;
 const neckOuterX = frameSize(1).outerX;
 export const CHORD_FRAME_OFFSET = -(neckOuterX + GAP + FRAME_BORDER + CHORD_INNER_X);
 export const TOOL_FRAME_OFFSET = neckOuterX + GAP + FRAME_BORDER + TOOL_INNER;
+
+/** Where the FilterFrame's centre starts, below the Fretboard's with `strings` rows. */
+export const filterFrameOffsetY = (strings) => -(frameSize(strings).outerY + GAP + FRAME_BORDER + FILTER_INNER_Y);
 
 /** Half the ChordFrame's opening, down, for `rows` degrees. */
 const chordInnerY = (rows) => (Math.max(rows, 1) * ROW) / 2 + MARGIN;
@@ -204,6 +224,164 @@ export function ToolFrame({ groupRef, handles, ...props }) {
         <meshPhysicalMaterial ref={material} color={PICK_COLOR} roughness={0.3} clearcoat={1} clearcoatRoughness={0.15} />
       </mesh>
       <Moulding name="ToolFrameMoulding" target="tools" innerX={TOOL_INNER} innerY={TOOL_INNER} handles={handles} />
+    </group>
+  );
+}
+
+/** The filter's name, for the FilterFrame's label, lit while it's on. Shared by every FilterFrame. */
+const filterLabels = new Map();
+function filterLabel(name, on) {
+  const id = `${name}|${on}`;
+  if (!filterLabels.has(id)) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#1b1b1b';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = on ? FILTER_ON : '#8a8a8a';
+    ctx.font = '600 72px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, canvas.width / 2, 70, canvas.width - 16);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    filterLabels.set(id, texture);
+  }
+  return filterLabels.get(id);
+}
+
+const trackGeometry = new THREE.BoxGeometry(...TRACK);
+const fillGeometry = new THREE.BoxGeometry(TRACK[0] * 1.6, 1, TRACK[2] * 1.6); // stretched up to the knob each frame
+const knobGeometry = new THREE.BoxGeometry(...KNOB);
+
+/** The knob's height in FilterFrame space for the slider at `amount`. */
+const knobY = (amount) => TRACK_CENTRE + (amount - 0.5) * TRAVEL;
+
+/**
+ * Where `world` is along the FilterFrame's track, as the slider's 0..1
+ * (clamped, unless `clamp` is false).
+ */
+export function knobAmountAt(filterFrame, world, clamp = true) {
+  const y = filterFrame.worldToLocal(_local.copy(world)).y;
+  const amount = (y - TRACK_CENTRE) / TRAVEL + 0.5;
+  return clamp ? THREE.MathUtils.clamp(amount, 0, 1) : amount;
+}
+
+/** Whether a sphere at `world` (radius in metres) touches the FilterFrame's knob. */
+export function touchesFilterKnob(knob, world, radius) {
+  knob.worldToLocal(_local.copy(world));
+  const r = radius / _scale.setFromMatrixScale(knob.matrixWorld).x;
+  const dx = Math.max(Math.abs(_local.x) - KNOB[0] / 2, 0);
+  const dy = Math.max(Math.abs(_local.y) - KNOB[1] / 2, 0);
+  const dz = Math.max(Math.abs(_local.z) - KNOB[2] / 2, 0);
+  return dx * dx + dy * dy + dz * dz <= r * r;
+}
+
+const _pointer = new THREE.Vector2();
+const _plane = new THREE.Plane();
+const _normal = new THREE.Vector3();
+const _onPlane = new THREE.Vector3();
+
+/**
+ * The FilterFrame, in `groupRef`, for the filter `filter` (an id from
+ * FILTERS). `amount.current` is the slider (0..1), which the knob follows;
+ * it glows while `handles.current.filterKnob` (hand -> true) says a hand
+ * touches or holds it. With `hoverEnabled` the mouse drags it, anywhere
+ * along the track: a press on the track jumps it there.
+ */
+export function FilterFrame({ groupRef, filter, amount, handles, hoverEnabled, ...props }) {
+  const on = filter !== 'off';
+  const name = FILTERS.find((f) => f.id === filter)?.name ?? '';
+  const knob = useRef(null);
+  const fill = useRef(null);
+  const knobMaterial = useRef(null);
+  const controls = useThree((s) => s.controls);
+  const camera = useThree((s) => s.camera);
+  const canvas = useThree((s) => s.gl.domElement);
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const dragging = useRef(false);
+  const hovered = useRef(false);
+
+  /** The slider to where `ray` (world) crosses the frame's face. */
+  const dragAlong = (ray) => {
+    const frame = groupRef.current;
+    if (!frame) return;
+    _normal.set(0, 0, 1).transformDirection(frame.matrixWorld);
+    _plane.setFromNormalAndCoplanarPoint(_normal, frame.getWorldPosition(_onPlane));
+    if (!ray.intersectPlane(_plane, _onPlane)) return;
+    amount.current = knobAmountAt(frame, _onPlane);
+    setFilterAmount(amount.current);
+  };
+  // a drag follows the pointer anywhere on the page, until the button is let go; meanwhile the view stays still
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!dragging.current) return;
+      const rect = canvas.getBoundingClientRect();
+      _pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(_pointer, camera);
+      dragAlong(raycaster.ray);
+    };
+    const onUp = () => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      if (controls) controls.enabled = true;
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  });
+  const mouse = {
+    onPointerDown: (e) => {
+      if (!hoverEnabled) return;
+      e.stopPropagation();
+      dragging.current = true;
+      if (controls) controls.enabled = false;
+      dragAlong(e.ray);
+    },
+    onPointerOver: () => hoverEnabled && (hovered.current = true),
+    onPointerOut: () => (hovered.current = false),
+  };
+
+  useFrame(() => {
+    const y = knobY(amount.current);
+    knob.current?.position.setY(y);
+    if (fill.current) {
+      const bottom = TRACK_CENTRE - TRACK[1] / 2;
+      fill.current.scale.y = Math.max(y - bottom, 0.001);
+      fill.current.position.y = (bottom + y) / 2;
+    }
+    const touched = hovered.current || dragging.current || Object.values(handles.current.filterKnob ?? {}).some(Boolean);
+    knobMaterial.current?.emissive.copy(touched ? FRAME_TOUCHED : NO_EMISSIVE);
+  });
+
+  return (
+    <group ref={groupRef} name="FilterFrame" userData={{ innerX: FILTER_INNER_X, innerY: FILTER_INNER_Y }} {...props}>
+      <mesh position={[0, LABEL_Y, 0.005]} raycast={() => null}>
+        <planeGeometry args={LABEL_SIZE} />
+        <meshBasicMaterial map={filterLabel(name, on)} toneMapped={false} />
+      </mesh>
+      <mesh geometry={trackGeometry} position-y={TRACK_CENTRE} raycast={() => null}>
+        <meshStandardMaterial color="#1b1b1b" roughness={0.8} />
+      </mesh>
+      <mesh ref={fill} geometry={fillGeometry} raycast={() => null}>
+        <meshStandardMaterial color={on ? FILTER_ON : FILTER_OFF} roughness={0.6} />
+      </mesh>
+      {/* invisible, behind the track: a press anywhere along it takes the knob there */}
+      <mesh position={[0, TRACK_CENTRE, -0.01]} {...mouse}>
+        <planeGeometry args={[2 * FILTER_INNER_X, TRAVEL + KNOB[1]]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} />
+      </mesh>
+      <mesh ref={knob} name="FilterKnob" geometry={knobGeometry} position-z={KNOB_RAISE} {...mouse}>
+        <meshStandardMaterial ref={knobMaterial} color={on ? '#e8e8e8' : '#777777'} roughness={0.4} metalness={0.2} />
+      </mesh>
+      <Moulding name="FilterFrameMoulding" target="filter" innerX={FILTER_INNER_X} innerY={FILTER_INNER_Y} handles={handles} />
     </group>
   );
 }

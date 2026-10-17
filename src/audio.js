@@ -5,7 +5,9 @@
 // any number of notes can sound at once. A voice can be bent: its pitch
 // raised or lowered by semitones while it sounds. Notes can be quantized:
 // held back to the next point of a beat grid. The echo repeats once a beat.
-// A note's velocity (0..1, how hard it was struck) sets its loudness.
+// A note's velocity (0..1, how hard it was struck) sets its loudness. Every
+// voice passes through the filter (Off, or a wah worked by the FilterFrame's
+// slider) before the echo, as a pedal would sit ahead of a delay.
 
 import { detectPitch } from './pitch.js';
 import { frequencyToNote, noteToFrequency } from './music.js';
@@ -49,6 +51,17 @@ const QUANTIZE_LATE = 0.04; // seconds: a note this soon after a grid point play
 const QUANTIZED_SYNTH_MIN = 0.12; // seconds: a quantized synth note let go before it starts still sounds this long
 const MIN_VELOCITY = 0.2; // the softest note is struck at least this hard, so it's never silent
 const VELOCITY_CURVE = 1.6; // loudness rises faster than velocity, so soft and hard sound evenly spaced
+const FILTER_FADE = 0.02; // seconds: the time constant switching filters fades with
+const WAH_LOW = 350; // Hz: the wah's resonance heel down (slider at 0)...
+const WAH_HIGH = 2500; // ...and toe down (at 1)
+const WAH_Q = 6;
+const WAH_LEVEL = 0.7; // the resonant peak is loud: the wah is mixed in a little lower
+
+/** The filters, in the menu's order. */
+export const FILTERS = [
+  { id: 'off', name: 'Off' },
+  { id: 'wah', name: 'Wah' },
+];
 
 /** A note's gain from its velocity (0..1): 1 at full velocity, about -22 dB at none. */
 const velocityGain = (velocity) => (MIN_VELOCITY + (1 - MIN_VELOCITY) * Math.min(Math.max(velocity, 0), 1)) ** VELOCITY_CURVE;
@@ -64,6 +77,12 @@ let ctx = null;
 let master;
 let echoSend;
 let echoDelay;
+let bus; // every voice feeds this: the filter's input
+let dry; // bus -> out, unfiltered, while the filter is off
+let wet; // bus -> wah -> out, while it's on
+let wah;
+let filter = 'off';
+let filterAmount = 0.5; // the slider, 0..1
 const SYNTH_RELEASE = 0.03; // seconds: a released synth fades with this time constant...
 const SYNTH_STOP = 0.3; // ...and its oscillator stops this long after
 const samples = new Map(); // name -> Promise<{ buffer, note, gain }>
@@ -88,7 +107,40 @@ function context() {
   echoDelay.connect(feedback);
   feedback.connect(echoDelay);
   echoDelay.connect(master);
+  // the filter: the voices' bus through the wah or around it, then out to the output and the echo
+  bus = ctx.createGain();
+  const out = ctx.createGain();
+  out.connect(master);
+  out.connect(echoSend);
+  dry = ctx.createGain();
+  wet = ctx.createGain();
+  wah = ctx.createBiquadFilter();
+  wah.type = 'lowpass';
+  wah.Q.value = WAH_Q;
+  wah.frequency.value = wahFrequency(filterAmount);
+  bus.connect(dry).connect(out);
+  bus.connect(wah).connect(wet).connect(out);
+  dry.gain.value = filter === 'off' ? 1 : 0;
+  wet.gain.value = filter === 'wah' ? WAH_LEVEL : 0;
   return ctx;
+}
+
+/** The wah's resonance for the slider at `amount` (0..1): rising evenly in pitch, heel to toe. */
+const wahFrequency = (amount) => WAH_LOW * (WAH_HIGH / WAH_LOW) ** Math.min(Math.max(amount, 0), 1);
+
+/** Switches the filter every voice passes through: an id from FILTERS. */
+export function setFilter(id) {
+  filter = id;
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  dry.gain.setTargetAtTime(id === 'off' ? 1 : 0, t, FILTER_FADE);
+  wet.gain.setTargetAtTime(id === 'wah' ? WAH_LEVEL : 0, t, FILTER_FADE);
+}
+
+/** Sets the filter's slider (0..1): for the wah, how far the pedal is rocked, heel to toe. */
+export function setFilterAmount(amount) {
+  filterAmount = amount;
+  if (ctx) wah.frequency.setTargetAtTime(wahFrequency(amount), ctx.currentTime, 0.02);
 }
 
 /** Browsers start audio suspended until a tap or key press: call from one. */
@@ -167,8 +219,7 @@ function playSample(voice, sample, note, at, loudness = 1) {
   const gain = c.createGain();
   gain.gain.value = sample.gain * loudness;
   source.connect(gain);
-  gain.connect(master);
-  gain.connect(echoSend);
+  gain.connect(bus);
   source.onended = () => {
     const i = sources.indexOf(source);
     if (i >= 0) sources.splice(i, 1);
@@ -190,8 +241,7 @@ function synthVoice(voice) {
     const gain = c.createGain();
     gain.gain.value = 0;
     osc.connect(gain);
-    gain.connect(master);
-    gain.connect(echoSend);
+    gain.connect(bus);
     osc.start();
     v = { osc, gain };
     synths.set(voice, v);

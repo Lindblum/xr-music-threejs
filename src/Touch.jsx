@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FRETS, touchedCells, touchedCellsByPoints, touchesFrame } from './Fretboard.jsx';
 import { pickPoints } from './Pick.jsx';
+import { chordOfNode, touchedChordNode } from './SideFrames.jsx';
 
 // Playing the Fretboard in XR, as in three.js's haptics demo: each
 // controller's tip (or each hand's index fingertip) is a small mallet.
@@ -15,7 +16,8 @@ import { pickPoints } from './Pick.jsx';
 // it, and that controller's own tip stops playing; that hand's trigger lets
 // it play any note. A hand (or the pick) bending notes (see Grab.jsx) plays
 // only those. Each mallet strikes at a velocity (0..1) from its speed, for
-// velocity-sensitive loudness (see Scene.jsx).
+// velocity-sensitive loudness (see Scene.jsx). Any mallet touching a node on
+// the ChordFrame selects its chord, with a kick (see SideFrames.jsx).
 
 const HANDS = ['left', 'right'];
 export const RADIUS = 0.02; // mallet radius, metres
@@ -71,12 +73,15 @@ export function pulse(gamepad, [strength, ms]) {
  * bending from
  * `handles.current.bendingHands`. Renders the controller mallets.
  * `touch` also gets each strike's velocity, from the mallet's speed.
+ * `onChord(chord)`: a mallet came onto a ChordFrame node; the nodes being
+ * touched go into `handles.current.chordTouching` (a Set of indices).
  */
-export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
+export function TouchPlay({ board, pick, origin, cells, touch, handles, onChord }) {
   const gl = useThree((s) => s.gl);
   const nextHum = useRef({});
   const balls = useRef({});
   const motion = useRef({}); // voice -> { position, speed } last frame, for its velocity
+  const onNode = useRef({}); // mallet -> the ChordFrame node it touched last frame
 
   useFrame((_, dt, frame) => {
     const referenceSpace = gl.xr.getReferenceSpace();
@@ -120,6 +125,19 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
       }
     };
 
+    const chordTouching = new Set();
+    /** One mallet on the ChordFrame: coming onto a node selects its chord. */
+    const chooseChord = (voice, points, radius, gamepad) => {
+      const node = points && fretboard ? touchedChordNode(fretboard, points, radius) : null;
+      if (node != null) chordTouching.add(node);
+      if (node != null && node !== onNode.current[voice]) {
+        const chord = chordOfNode(fretboard, node);
+        if (chord) onChord?.(chord);
+        pulse(gamepad, STRIKE);
+      }
+      onNode.current[voice] = node;
+    };
+
     for (const hand of HANDS) {
       // a controller holding the pick plays with the pick instead
       const m = pickHolding[hand] ? null : mallets[hand];
@@ -131,6 +149,7 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
       if (mallets[hand]) mallets[hand].velocity = velocity(hand, mallets[hand].position);
       else delete motion.current[hand];
       play(hand, m, RADIUS, true);
+      chooseChord(hand, m && [m.position], RADIUS, m?.gamepad);
     }
 
     const p = pick.current;
@@ -140,9 +159,12 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles }) {
       const { points, radius } = pickPoints(p);
       const speed = velocity('pick', p.getWorldPosition(_pickCentre));
       play('pick', p.visible ? { points, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger), velocity: speed } : null, radius, false);
+      chooseChord('pick', p.visible && points, radius, holder?.gamepad);
     } else {
       touch('pick', []);
+      onNode.current.pick = null;
     }
+    handles.current.chordTouching = chordTouching;
   });
 
   return HANDS.map((hand) => (

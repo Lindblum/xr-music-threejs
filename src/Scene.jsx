@@ -7,6 +7,7 @@ import { FRETS, Fretboard } from './Fretboard.jsx';
 import { GazePlay, TouchPlay } from './Touch.jsx';
 import { useControllerGrips } from './Grab.jsx';
 import { Pick } from './Pick.jsx';
+import { ChordFrame, ToolFrame } from './SideFrames.jsx';
 import { XRMenuPanel } from './XRMenuPanel.jsx';
 import { SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
@@ -230,7 +231,13 @@ function useTouches(cells, instrument, velocitySensitive) {
   return [touches, touch, press, bend];
 }
 
-export default function Scene({ cells, chord, state, menu, phone, holding, onExitXR }) {
+/**
+ * `chord`: the pitch classes the Fretboard raises (or null for the key's
+ * triad); `chart` the key's chord chart for the ChordFrame, `selectedChord`
+ * the chord raised, if it's on the chart, and `onChord(chord)` a chord chosen
+ * there.
+ */
+export default function Scene({ cells, chord, chart, selectedChord, onChord, state, menu, phone, holding, onExitXR }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -329,9 +336,13 @@ export default function Scene({ cells, chord, state, menu, phone, holding, onExi
         hoverEnabled={!immersive}
         onHover={hoverMouse}
         onBend={bend}
-      />
+      >
+        <ChordFrame strings={strings} chart={chart} selected={selectedChord} handles={handles} hoverEnabled={!immersive} onSelect={onChord} />
+        {/* the toolbox's pick only docks on controllers */}
+        {inSession && !phone && <ToolFrame strings={strings} handles={handles} />}
+      </Fretboard>
       {inSession && !phone && <Pick pickRef={pick} handles={handles} position={PICK_POSITION} rotation={PICK_ROTATION} />}
-      {inSession && <TouchPlay board={board} pick={pick} origin={origin} cells={cells} touch={touch} handles={handles} />}
+      {inSession && <TouchPlay board={board} pick={pick} origin={origin} cells={cells} touch={touch} handles={handles} onChord={onChord} />}
       {immersive && !hasControllers && <GazePlay board={board} press={press} holding={holding} />}
       <Player
         origin={origin}

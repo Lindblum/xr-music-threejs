@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { XR, createXRStore, useXRSessionModeSupported } from '@react-three/xr';
 import Scene from './Scene.jsx';
@@ -9,7 +9,7 @@ import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { buildCells } from './Fretboard.jsx';
 import { INSTRUMENTS, loadInstrument, playChord, setBeatGrid, setEcho, unlockAudio } from './audio.js';
-import { SCALES, TUNINGS, builtChord, chordNotes, chordPitchClasses, mod12, stockChords } from './music.js';
+import { SCALES, TUNINGS, builtChord, chordNotes, chordPitchClasses, keyChordChart, mod12, stockChords } from './music.js';
 import { useProgression } from './progression.js';
 import { loadSettings, saveSettings } from './settings.js';
 import {
@@ -514,7 +514,18 @@ export default function App() {
   useKeyboard(actions, player);
   // the playing (or paused) chord's notes, raised on the Fretboard; stopped, the key's triad is
   const currentChord = player.index != null ? state.progression[player.index] : null;
-  const chordTones = useMemo(() => currentChord && chordPitchClasses(currentChord), [currentChord]);
+  // a chord chosen on the ChordFrame is raised instead, until the progression moves on or the key or scale changes
+  const chart = useMemo(() => keyChordChart(state.key, state.scale), [state.key, state.scale]);
+  const [chosenChord, setChosenChord] = useState(null);
+  useEffect(() => setChosenChord(null), [player.index, player.measure, state.key, state.scale]);
+  const raisedChord = chosenChord ?? currentChord;
+  const chordTones = useMemo(() => raisedChord && chordPitchClasses(raisedChord), [raisedChord]);
+  const latestSelect = useRef({});
+  latestSelect.current = { mode: state.playOnSelect, instrument: state.instrument };
+  const chooseChord = useCallback((chord) => {
+    setChosenChord(chord);
+    playSelected(chord, latestSelect.current.mode, latestSelect.current.instrument);
+  }, []);
   // with Play on Select, the progression plays each chord (or its root) as it lands on it, at the top of its measure
   const strum = useRef({});
   strum.current = { chord: currentChord, instrument: state.instrument, mode: state.playOnSelect };
@@ -672,6 +683,9 @@ export default function App() {
           <Scene
             cells={cells}
             chord={chordTones}
+            chart={chart}
+            selectedChord={raisedChord}
+            onChord={chooseChord}
             state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
             menu={menu}
             onExitXR={() => selectView('normal')}

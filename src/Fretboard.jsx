@@ -109,9 +109,10 @@ const geometry = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
  * triad. `onHover(index | null, velocity)` reports the mouse: hovering sounds
  * notes in the scale or chord (at the mouse's speed as velocity, 0..1), and
  * with the button down, any note; a click strikes at full velocity. Each cube's mesh
- * carries `userData.playable`, whether a touch sounds it.
+ * carries `userData.playable`, whether a touch sounds it. `children` hang on
+ * the Fretboard, in its space (the side frames, see SideFrames.jsx).
  */
-export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, onBend, position }) {
+export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, onBend, position, children }) {
   const strings = cells.length / FRETS;
   const meshes = useRef([]);
   const bent = useRef([]); // each cell's bend last reported, in semitones
@@ -240,16 +241,17 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
         <meshBasicMaterial colorWrite={false} depthWrite={false} />
       </mesh>
       <FretboardFrame strings={strings} handles={handles} />
+      {children}
     </group>
   );
 }
 
 // The frame: a moulding around the notes, like a picture frame
 const FRAME_MARGIN = 0.01; // between the outer cubes and the frame
-const FRAME_BORDER = 0.05; // moulding width
+export const FRAME_BORDER = 0.05; // moulding width
 const FRAME_DEPTH = 0.04;
 const FRAME_BEVEL = 0.006;
-const FRAME_COLOR = '#6b4a2b';
+export const FRAME_COLOR = '#6b4a2b';
 const FRAME_TOUCHED = new THREE.Color('#3355ff').multiplyScalar(0.35);
 const FRAME_HELD = new THREE.Color('#3355ff').multiplyScalar(0.7);
 
@@ -260,8 +262,10 @@ export function frameSize(strings) {
   return { innerX, innerY, outerX: innerX + FRAME_BORDER, outerY: innerY + FRAME_BORDER };
 }
 
-function frameGeometry(strings) {
-  const { innerX, innerY, outerX, outerY } = frameSize(strings);
+/** A picture frame's moulding around an opening `innerX` by `innerY` (half-sizes), centred on its plane. */
+export function frameGeometry(innerX, innerY) {
+  const outerX = innerX + FRAME_BORDER;
+  const outerY = innerY + FRAME_BORDER;
   const shape = new THREE.Shape();
   shape.moveTo(-outerX, -outerY).lineTo(outerX, -outerY).lineTo(outerX, outerY).lineTo(-outerX, outerY).closePath();
   const hole = new THREE.Path();
@@ -283,7 +287,10 @@ function frameGeometry(strings) {
  * glows while touched or pointed at (`handles.current.aiming`), more while held.
  */
 function FretboardFrame({ strings, handles }) {
-  const geometry = useMemo(() => frameGeometry(strings), [strings]);
+  const geometry = useMemo(() => {
+    const { innerX, innerY } = frameSize(strings);
+    return frameGeometry(innerX, innerY);
+  }, [strings]);
   useEffect(() => () => geometry.dispose(), [geometry]);
   const material = useRef(null);
   useFrame(() => {

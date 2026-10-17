@@ -118,6 +118,34 @@ export function keyChords(key, scale) {
 }
 
 /**
+ * The 7th chord on a degree's triad ({ step, chord } from keyChords) whose
+ * 7th lies in the scale: a major 7th first, then a flat 7th (a diminished
+ * triad's flat 7th makes it half diminished), then a diminished triad's
+ * diminished 7th. Null if the scale has none of them.
+ */
+function seventhChord(step, chord, scale) {
+  const has = (interval) => scale.steps.includes(mod12(step + interval));
+  if (chord.type === 'dim') {
+    if (has(10)) return { ...chord, type: 'hdim' };
+    if (has(9)) return { ...chord, modifier: 'dom7' };
+    return null;
+  }
+  if (has(11)) return { ...chord, modifier: 'maj7' };
+  if (has(10)) return { ...chord, modifier: 'dom7' };
+  return null;
+}
+
+/**
+ * The chord chart for the key: each degree's triad (see keyChords) and its
+ * 7th in the scale, or null where there is none. Each: { step, triad, seventh }.
+ */
+export const keyChordChart = (key, scale) =>
+  keyChords(key, scale).map(({ step, chord }) => ({ step, triad: chord, seventh: seventhChord(step, chord, scale) }));
+
+/** Whether two chords are the same chord. */
+export const sameChord = (a, b) => Boolean(a && b && a.root === b.root && a.type === b.type && a.modifier === b.modifier);
+
+/**
  * Stock progressions, as [semitones above the key, quality, modifier] per
  * chord (one chord a measure), and the scale each is in: the minor ones are
  * counted from the minor key's tonic.

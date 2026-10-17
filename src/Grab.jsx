@@ -21,6 +21,10 @@ import { playClick } from './audio.js';
 // the panel on the left. A double tap of a grip lets go of whatever is docked
 // on that controller, leaving it where it is; with nothing docked there, it
 // calls back the things whose home it is (where each was last docked).
+// The ToolFrame's pick (see SideFrames.jsx), touched by a controller's tip,
+// docks the pick on that controller, if the pick isn't already docked there
+// and the controller isn't gripping anything (a docked panel doesn't count):
+// off the other controller, or from wherever it was let go.
 //
 // A grip also takes what the controller's ray points at, at any distance:
 // the frame, the pick or the panel, whichever is nearest (and glows, so you
@@ -188,6 +192,7 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
   const carried = useRef(Object.fromEntries(CARRIED.map((target) => [target, { oneHand: null, last: {} }])));
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const taps = useRef({}); // hand -> { down, pressedAt, tappedAt }, for double taps
+  const tools = useRef({}); // hand -> its tip was on the ToolFrame's pick last frame
 
   useFrame((_, dt, frame) => {
     const referenceSpace = gl.xr.getReferenceSpace();
@@ -199,6 +204,7 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
       handles.current.bending = {};
       handles.current.bendingHands = {};
       handles.current.aiming = {};
+      handles.current.toolTouching = {};
       return;
     }
     const controllers = readControllers(frame, referenceSpace, origin.current);
@@ -213,6 +219,8 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
     const bendingHands = {}; // hand -> the cell it's bending
     const aiming = {}; // hand -> what its ray would grab: 'menu' | 'pick' | 'board'
     const frameMesh = fretboard?.getObjectByName('FretboardFrame');
+    const toolPick = fretboard?.getObjectByName('ToolPick');
+    const toolTouching = {}; // hand -> its tip is on the ToolFrame's pick
     const aimHits = [];
 
     // the panel starts on the left controller and the pick on the right (or whichever there is), until moved
@@ -300,6 +308,18 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
         _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
         pickTouching[hand] = touchesPick(thePick, _tip, GRAB_RADIUS);
       }
+      // coming onto the ToolFrame's pick docks the pick here, unless it's docked here already or the grip is held
+      if (c && toolPick && thePick) {
+        _tip.copy(c.ray.origin).addScaledVector(c.ray.direction, TIP_FORWARD);
+        toolTouching[hand] = touchesPick(toolPick, _tip, RADIUS);
+        const otherHoldsPick = HANDS.some((h) => h !== hand && grabs.current[h]?.target === 'pick' && controllers[h]?.squeeze);
+        if (toolTouching[hand] && !tools.current[hand] && pDock.to !== hand && !c.squeeze && !otherHoldsPick) {
+          Object.assign(pDock, { to: hand, placed: true, scale: 1 });
+          playClick('attach');
+          pulse(c.gamepad, DOCK_PULSE);
+        }
+      }
+      tools.current[hand] = Boolean(toolTouching[hand]);
       // what a grip from this hand would take by pointing, unless it's holding something
       const aimed = c && !(c.squeeze && grab) ? aim(hand, c) : null;
       if (aimed) aiming[hand] = aimed.target;
@@ -424,6 +444,7 @@ export function useControllerGrips({ board, pick, pickDock, menu, menuDock, orig
     for (const hand of HANDS) if (aiming[hand] === 'pick') pickTouching[hand] = true;
     handles.current.pick = { touching: flags(pickTouching), holding: flags(holding.pick), docked: pDock.to };
     handles.current.aiming = aiming;
+    handles.current.toolTouching = flags(toolTouching);
     handles.current.bending = bending;
     handles.current.bendingHands = bendingHands;
     carryByHands(fretboard, holding.board, carried.current.board);

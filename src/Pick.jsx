@@ -21,7 +21,7 @@ const BEVEL = 0.001;
 const SAMPLE_SPACING = 0.012; // between the points that stand for the pick in the touch tests
 /** The radius around each sample point, in pick metres: it closes the gaps between them and covers the thickness. */
 export const PICK_SAMPLE_RADIUS = Math.max((SAMPLE_SPACING * Math.SQRT2) / 2, THICKNESS / 2);
-const COLOR = '#d9642b';
+export const PICK_COLOR = '#d9642b';
 const TOUCHED = new THREE.Color('#3355ff').multiplyScalar(0.35);
 const HELD = new THREE.Color('#3355ff').multiplyScalar(0.7);
 const NONE = new THREE.Color(0, 0, 0);
@@ -47,7 +47,7 @@ function outline() {
 }
 const OUTLINE = outline();
 
-function pickGeometry() {
+export function pickGeometry() {
   const geometry = new THREE.ExtrudeGeometry(new THREE.Shape(OUTLINE), {
     depth: THICKNESS - 2 * BEVEL,
     bevelEnabled: true,
@@ -141,7 +141,7 @@ export function Pick({ pickRef, handles, ...props }) {
   });
   return (
     <mesh ref={pickRef} name="Pick" geometry={geometry} raycast={() => null} {...props}>
-      <meshPhysicalMaterial ref={material} color={COLOR} roughness={0.3} clearcoat={1} clearcoatRoughness={0.15} />
+      <meshPhysicalMaterial ref={material} color={PICK_COLOR} roughness={0.3} clearcoat={1} clearcoatRoughness={0.15} />
     </mesh>
   );
 }

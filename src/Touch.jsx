@@ -10,11 +10,11 @@ import { chordOfNode, touchedChordNode } from './SideFrames.jsx';
 // Touching a cube strikes its note (every cube it touches, if it's between
 // them); a controller kicks as it enters a cube and hums softly while it
 // stays inside. Notes outside the scale only sound while the controller's
-// trigger is held (a tracked hand can't play them). Touching the frame gives
-// a lighter tap and hum, so you can feel where to take hold of it. The whole
-// pick is a mallet too: held or docked, it kicks and hums the hand holding
-// it, and that controller's own tip stops playing; that hand's trigger lets
-// it play any note. A hand (or the pick) bending notes (see Grab.jsx) plays
+// trigger is held (a tracked hand can't play them). Touching the NeckFrame
+// gives a lighter tap and hum, so you can feel where to take hold of it.
+// Each whole pick is a mallet too: held or docked, it kicks and hums the hand
+// holding it, and that controller's own tip stops playing; that hand's
+// trigger lets it play any note. A hand (or a pick) bending notes (see Grab.jsx) plays
 // only those. Each mallet strikes at a velocity (0..1) from its speed, for
 // velocity-sensitive loudness (see Scene.jsx). Any mallet touching a node on
 // the ChordFrame selects its chord, with a kick (see SideFrames.jsx).
@@ -65,32 +65,38 @@ export function pulse(gamepad, [strength, ms]) {
 }
 
 /**
- * Touch play for both hands and the pick. `board`, `pick` and `origin` are
- * refs; `cells` the Fretboard's cells; `touch(source, indices)` sounds the
- * notes a source touches and releases the rest. Writes which hands touch the
- * frame into `handles.current.touching`, and reads which hold the pick (or
- * have it docked) from `handles.current.pick` and which note each hand is
- * bending from
- * `handles.current.bendingHands`. Renders the controller mallets.
+ * Touch play for both hands and the picks. `board`, `chordFrame` and `origin`
+ * are refs, and `picks.current` a Map of id -> { object } (see Grab.jsx);
+ * `cells` the Fretboard's cells; `touch(source, indices)` sounds the notes a
+ * source touches and releases the rest. Writes which hands touch the
+ * NeckFrame into `handles.current.touching`, and reads which hold each pick
+ * (or have it docked) from `handles.current.picks` and which note each
+ * mallet is bending from `handles.current.bendingHands`. Renders the
+ * controller mallets.
  * `touch` also gets each strike's velocity, from the mallet's speed.
  * `onChord(chord)`: a mallet came onto a ChordFrame node; the nodes being
  * touched go into `handles.current.chordTouching` (a Set of indices).
  */
-export function TouchPlay({ board, pick, origin, cells, touch, handles, onChord }) {
+export function TouchPlay({ board, chordFrame, picks, origin, cells, touch, handles, onChord }) {
   const gl = useThree((s) => s.gl);
   const nextHum = useRef({});
   const balls = useRef({});
   const motion = useRef({}); // voice -> { position, speed } last frame, for its velocity
   const onNode = useRef({}); // mallet -> the ChordFrame node it touched last frame
+  const pickVoices = useRef(new Set()); // the picks' voices last frame, to silence a pick taken away
 
   useFrame((_, dt, frame) => {
     const referenceSpace = gl.xr.getReferenceSpace();
     const mallets = frame && origin.current && referenceSpace ? readMallets(frame, referenceSpace, origin.current) : {};
     const now = performance.now() / 1000;
     const { touching, holding } = handles.current;
-    // the hands holding the pick, or the one it's docked on
-    const { holding: pickHeld = {}, docked: pickDocked = null } = handles.current.pick ?? {};
-    const pickHolding = { ...pickHeld, ...(pickDocked && { [pickDocked]: true }) };
+    // each pick's hands: those holding it, or the one it's docked on
+    const pickHands = (id) => {
+      const { holding: held = {}, docked = null } = handles.current.picks?.[id] ?? {};
+      return { ...held, ...(docked && { [docked]: true }) };
+    };
+    const pickHolding = {}; // hand -> it holds a pick, or has one docked
+    for (const id of picks.current.keys()) for (const [hand, on] of Object.entries(pickHands(id))) if (on) pickHolding[hand] = true;
     const bendingHands = handles.current.bendingHands ?? {};
     const fretboard = board.current;
 
@@ -128,10 +134,11 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles, onChord 
     const chordTouching = new Set();
     /** One mallet on the ChordFrame: coming onto a node selects its chord. */
     const chooseChord = (voice, points, radius, gamepad) => {
-      const node = points && fretboard ? touchedChordNode(fretboard, points, radius) : null;
+      const chords = chordFrame.current;
+      const node = points && chords ? touchedChordNode(chords, points, radius) : null;
       if (node != null) chordTouching.add(node);
       if (node != null && node !== onNode.current[voice]) {
-        const chord = chordOfNode(fretboard, node);
+        const chord = chordOfNode(chords, node);
         if (chord) onChord?.(chord);
         pulse(gamepad, STRIKE);
       }
@@ -139,7 +146,7 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles, onChord 
     };
 
     for (const hand of HANDS) {
-      // a controller holding the pick plays with the pick instead
+      // a controller holding a pick plays with the pick instead
       const m = pickHolding[hand] ? null : mallets[hand];
       const ball = balls.current[hand];
       if (ball) {
@@ -152,18 +159,27 @@ export function TouchPlay({ board, pick, origin, cells, touch, handles, onChord 
       chooseChord(hand, m && [m.position], RADIUS, m?.gamepad);
     }
 
-    const p = pick.current;
-    if (p) {
+    const voices = new Set();
+    for (const [id, { object: p }] of picks.current) {
+      if (!p) continue;
       // all of the pick, with the trigger and haptics of the hand holding it (the first, if both)
-      const holder = mallets[HANDS.find((hand) => pickHolding[hand])];
+      const voice = `pick:${id}`;
+      voices.add(voice);
+      const hands = pickHands(id);
+      const holder = mallets[HANDS.find((hand) => hands[hand])];
       const { points, radius } = pickPoints(p);
-      const speed = velocity('pick', p.getWorldPosition(_pickCentre));
-      play('pick', p.visible ? { points, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger), velocity: speed } : null, radius, false);
-      chooseChord('pick', p.visible && points, radius, holder?.gamepad);
-    } else {
-      touch('pick', []);
-      onNode.current.pick = null;
+      const speed = velocity(voice, p.getWorldPosition(_pickCentre));
+      play(voice, p.visible ? { points, gamepad: holder?.gamepad, trigger: Boolean(holder?.trigger), velocity: speed } : null, radius, false);
+      chooseChord(voice, p.visible && points, radius, holder?.gamepad);
     }
+    // a pick taken away lets go of its notes
+    for (const voice of pickVoices.current) {
+      if (voices.has(voice)) continue;
+      touch(voice, []);
+      delete onNode.current[voice];
+      delete motion.current[voice];
+    }
+    pickVoices.current = voices;
     handles.current.chordTouching = chordTouching;
   });
 

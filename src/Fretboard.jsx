@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { isInSteps, mod12, noteCss, noteName, noteRgb } from './music.js';
 
 // The Fretboard: one cube per string and fret, like a guitar neck stood up
-// in front of the player, inside a picture frame. Each cube is coloured by
+// in front of the player, inside a picture frame, the NeckFrame. Each cube is coloured by
 // its note, with the name on its front face. Notes in the scale are bright
 // and stand out toward the player; the current chord's notes stand out
 // further (while a progression plays or is paused, its chord; otherwise the
@@ -14,7 +14,7 @@ import { isInSteps, mod12, noteCss, noteName, noteRgb } from './music.js';
 // to hold its trigger. A note can be bent: taken by a grip (see Grab.jsx) and
 // pulled along the frets, a fret's width for each semitone, it slides with
 // the hand and its pitch follows; let go, it springs back home and its pitch
-// with it. The frame is the handle that moves, turns and scales the whole
+// with it. The NeckFrame is the handle that moves, turns and scales the whole
 // Fretboard (see Grab.jsx). Fretboard space has its origin at the centre of
 // the notes, x along the frets, y up the strings, z toward the player.
 
@@ -98,9 +98,9 @@ function cubeMaterials(cell) {
 const geometry = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
 
 /**
- * The Fretboard object: its notes and frame, in `boardRef`.
+ * The Fretboard object: its notes and NeckFrame, in `boardRef`.
  * `touches` is a Map of voice -> cell index, written by whatever is touching
- * the notes; touched cubes glow and shiver. `handles` is the frame's
+ * the notes; touched cubes glow and shiver. `handles` is the NeckFrame's
  * { touching, holding } (hand -> true), which light it up, and
  * `handles.current.bending` the notes being bent (cell index -> how far
  * along the frets, in board metres). `onBend(index, semitones)` reports a
@@ -109,10 +109,9 @@ const geometry = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
  * triad. `onHover(index | null, velocity)` reports the mouse: hovering sounds
  * notes in the scale or chord (at the mouse's speed as velocity, 0..1), and
  * with the button down, any note; a click strikes at full velocity. Each cube's mesh
- * carries `userData.playable`, whether a touch sounds it. `children` hang on
- * the Fretboard, in its space (the side frames, see SideFrames.jsx).
+ * carries `userData.playable`, whether a touch sounds it.
  */
-export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, onBend, position, children }) {
+export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, onBend, position }) {
   const strings = cells.length / FRETS;
   const meshes = useRef([]);
   const bent = useRef([]); // each cell's bend last reported, in semitones
@@ -240,13 +239,12 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
         <planeGeometry args={[2 * frameSize(strings).innerX, 2 * frameSize(strings).innerY]} />
         <meshBasicMaterial colorWrite={false} depthWrite={false} />
       </mesh>
-      <FretboardFrame strings={strings} handles={handles} />
-      {children}
+      <NeckFrame strings={strings} handles={handles} />
     </group>
   );
 }
 
-// The frame: a moulding around the notes, like a picture frame
+// The NeckFrame: a moulding around the notes, like a picture frame
 const FRAME_MARGIN = 0.01; // between the outer cubes and the frame
 export const FRAME_BORDER = 0.05; // moulding width
 const FRAME_DEPTH = 0.04;
@@ -255,7 +253,7 @@ export const FRAME_COLOR = '#6b4a2b';
 const FRAME_TOUCHED = new THREE.Color('#3355ff').multiplyScalar(0.35);
 const FRAME_HELD = new THREE.Color('#3355ff').multiplyScalar(0.7);
 
-/** Half-sizes of the frame's opening and of its outside, in Fretboard space. */
+/** Half-sizes of the NeckFrame's opening and of its outside, in Fretboard space. */
 export function frameSize(strings) {
   const innerX = (FRETS * SPACING) / 2 + FRAME_MARGIN;
   const innerY = (strings * SPACING) / 2 + FRAME_MARGIN;
@@ -283,10 +281,11 @@ export function frameGeometry(innerX, innerY) {
 }
 
 /**
- * The picture frame around the notes: the handle for the whole Fretboard. It
- * glows while touched or pointed at (`handles.current.aiming`), more while held.
+ * The NeckFrame, the picture frame around the notes: the handle for the whole
+ * Fretboard. It glows while touched or pointed at (`handles.current.aiming`),
+ * more while held.
  */
-function FretboardFrame({ strings, handles }) {
+function NeckFrame({ strings, handles }) {
   const geometry = useMemo(() => {
     const { innerX, innerY } = frameSize(strings);
     return frameGeometry(innerX, innerY);
@@ -300,7 +299,7 @@ function FretboardFrame({ strings, handles }) {
     material.current?.emissive.copy(held ? FRAME_HELD : touched ? FRAME_TOUCHED : NO_EMISSIVE);
   });
   return (
-    <mesh name="FretboardFrame" geometry={geometry}>
+    <mesh name="NeckFrame" geometry={geometry}>
       <meshStandardMaterial ref={material} color={FRAME_COLOR} roughness={0.55} metalness={0.05} />
     </mesh>
   );
@@ -308,18 +307,29 @@ function FretboardFrame({ strings, handles }) {
 
 const _local = new THREE.Vector3();
 
-/** Whether a sphere at `world` (radius in metres) touches the frame of a Fretboard with `strings` rows. */
+/** Whether a sphere at `world` (radius in metres) touches the NeckFrame of a Fretboard with `strings` rows. */
 export function touchesFrame(board, strings, world, radius) {
-  board.worldToLocal(_local.copy(world));
-  const r = radius / board.scale.x;
-  const { innerX, innerY, outerX, outerY } = frameSize(strings);
+  const { innerX, innerY } = frameSize(strings);
+  return touchesMoulding(board, innerX, innerY, world, radius);
+}
+
+/**
+ * Whether a sphere at `world` (radius in metres) touches a frame's moulding
+ * (see frameGeometry) centred in `object`'s space, around an opening
+ * `innerX` by `innerY` (half-sizes).
+ */
+export function touchesMoulding(object, innerX, innerY, world, radius) {
+  object.worldToLocal(_local.copy(world));
+  const r = radius / object.scale.x;
+  const outerX = innerX + FRAME_BORDER;
+  const outerY = innerY + FRAME_BORDER;
   const x = Math.abs(_local.x);
   const y = Math.abs(_local.y);
   if (Math.abs(_local.z) > FRAME_DEPTH / 2 + r || x > outerX + r || y > outerY + r) return false;
   return x > innerX - r || y > innerY - r; // on the moulding, not in the opening
 }
 
-/** Whether `world` is within `reach` metres of a Fretboard's frame or anything inside it. */
+/** Whether `world` is within `reach` metres of a Fretboard's NeckFrame or anything inside it. */
 export function nearFrame(board, strings, world, reach) {
   board.worldToLocal(_local.copy(world));
   const r = reach / board.scale.x;

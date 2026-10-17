@@ -519,6 +519,8 @@ export default function App() {
   const [chosenChord, setChosenChord] = useState(null);
   useEffect(() => setChosenChord(null), [player.index, player.measure, state.key, state.scale]);
   const raisedChord = chosenChord ?? currentChord;
+  // ...on the ChordFrame too, where with neither it's the I chord, the key's triad the Fretboard raises then
+  const shownChord = raisedChord ?? (state.scale.chord.length ? chart.find((row) => row.step === 0)?.triad : null) ?? null;
   const chordTones = useMemo(() => raisedChord && chordPitchClasses(raisedChord), [raisedChord]);
   const latestSelect = useRef({});
   latestSelect.current = { mode: state.playOnSelect, instrument: state.instrument };
@@ -684,7 +686,7 @@ export default function App() {
             cells={cells}
             chord={chordTones}
             chart={chart}
-            selectedChord={raisedChord}
+            selectedChord={shownChord}
             onChord={chooseChord}
             state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
             menu={menu}

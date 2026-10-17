@@ -7,7 +7,7 @@ import { FRETS, Fretboard } from './Fretboard.jsx';
 import { GazePlay, TouchPlay } from './Touch.jsx';
 import { useControllerGrips } from './Grab.jsx';
 import { Pick } from './Pick.jsx';
-import { ChordFrame, ToolFrame } from './SideFrames.jsx';
+import { CHORD_FRAME_OFFSET, ChordFrame, TOOL_FRAME_OFFSET, ToolFrame } from './SideFrames.jsx';
 import { XRMenuPanel } from './XRMenuPanel.jsx';
 import { SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
@@ -20,6 +20,9 @@ import { allNotesOff, noteOff, noteOn, setBend } from './audio.js';
 // The Fretboard's centre: a metre above the floor and half a metre in front
 // of the player, as in the old page.
 const BOARD_POSITION = [0, 1, -0.5];
+// The ChordFrame and ToolFrame start either side of it, each its own handle (see SideFrames.jsx).
+const CHORD_FRAME_POSITION = [BOARD_POSITION[0] + CHORD_FRAME_OFFSET, BOARD_POSITION[1], BOARD_POSITION[2]];
+const TOOL_FRAME_POSITION = [BOARD_POSITION[0] + TOOL_FRAME_OFFSET, BOARD_POSITION[1], BOARD_POSITION[2]];
 // The windowed view looks a little left of centre, so the board clears the panel.
 export const ORBIT_TARGET = [-0.5, 1, -0.5];
 // Without VR controllers (hand tracking, phones) the XR panel starts off to
@@ -28,15 +31,19 @@ const MENU_POSITION = [-0.65, 1.05, 0.05];
 const MENU_ROTATION = [0, 0.9, 0];
 // a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
 const PHONE_STEREO_MENU_SCALE = 1.5;
-// The pick (XR: Headset only) starts docked on the right controller (see
-// Grab.jsx). Without controllers it waits in front of the player, a little
-// right of centre and below the board's middle, clear of its raised notes,
-// face on, tip down. Constants, so a re-render never undoes a move.
+// The first pick (XR: Headset only) starts docked on the right controller;
+// more come from the ToolFrame (see Grab.jsx). Without controllers it waits
+// in front of the player, a little right of centre and below the board's
+// middle, clear of its raised notes, face on, tip down. Constants, so a
+// re-render never undoes a move.
 const PICK_POSITION = [0.3, 0.95, -0.05];
 const PICK_ROTATION = [0, -0.3, 0.25];
 // With VR controllers the panel starts docked on the left one, like a palette
 // held in that hand, and the right controller's ray presses its buttons. A
-// grip takes it to dock on either controller or the Fretboard's frame (see Grab.jsx).
+// grip takes it to dock on either controller or the NeckFrame (see Grab.jsx).
+
+/** Where the first pick is docked: nowhere yet, until controllers show up (see Grab.jsx). */
+const firstPickDock = () => ({ to: null, placed: false, scale: 1, home: 'right' });
 
 const SKY_URL = `${import.meta.env.BASE_URL}img/skybox.jpg`;
 
@@ -131,7 +138,7 @@ const _head = new THREE.Vector3();
 
 /**
  * Left thumbstick moves, right thumbstick turns smoothly about the head.
- * The grip buttons, on the Fretboard's frame, move, turn and scale it, or
+ * The grip buttons, on a frame, move, turn and scale it, or
  * carry and dock the panel. An undocked panel travels with the player.
  */
 const MENU_BUTTON = 7; // the left controller's menu button (xr-standard index on Quest 3 / Touch Plus)
@@ -149,7 +156,7 @@ function useMenuButton(onPress) {
   });
 }
 
-function Player({ origin, board, pick, pickDock, menu, menuDock, strings, handles, onExitXR, children }) {
+function Player({ origin, onExitXR, children, ...grips }) {
   useXRControllerLocomotion(
     (velocity, turn, delta, state) => {
       const o = origin.current;
@@ -169,14 +176,14 @@ function Player({ origin, board, pick, pickDock, menu, menuDock, strings, handle
     { speed: 1.5 },
     { type: 'smooth', speed: 1.5 },
   );
-  useControllerGrips({ board, pick, pickDock, menu, menuDock, origin, strings, handles });
+  useControllerGrips({ origin, ...grips });
   useMenuButton(onExitXR);
   return <XROrigin ref={origin}>{children}</XROrigin>;
 }
 
 /**
  * Which cubes are being touched, and by what: voice -> cell index, where a
- * voice is one source ('mouse', 'left', 'right', 'pick', 'gaze') on one cube
+ * voice is one source ('mouse', 'left', 'right', 'pick:<id>', 'gaze') on one cube
  * ('left:12'), so a source can sound several notes at once. `touch(source,
  * indices)` moves a source onto those cubes, sounding the new ones and
  * releasing the rest, and reports whether a new note was struck; `press(source,
@@ -252,11 +259,24 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, sta
   const board = useRef(null);
   const origin = useRef(null);
   const menuPanel = useRef(null);
-  const pick = useRef(null);
+  const chordFrame = useRef(null);
+  const toolFrame = useRef(null);
   const menuDock = useRef({ to: null, placed: false, home: 'left' }); // where the panel is docked: see Grab.jsx
-  const pickDock = useRef({ to: null, placed: false, scale: 1, home: 'right' }); // where the pick is docked: see Grab.jsx
-  // hands on the frame, and touching and holding the pick: see Touch.jsx and Grab.jsx
-  const handles = useRef({ touching: {}, holding: {}, pick: { touching: {}, holding: {} } });
+  // the picks: id -> { object, dock }, where each is docked (see Grab.jsx); ids, to draw them
+  const picks = useRef(new Map([[0, { object: null, dock: firstPickDock() }]]));
+  const nextPickId = useRef(1);
+  const [pickIds, setPickIds] = useState([0]);
+  const spawnPick = useCallback((hand) => {
+    const id = nextPickId.current++;
+    picks.current.set(id, { object: null, dock: { to: hand, placed: true, scale: 1, home: hand } });
+    setPickIds((ids) => [...ids, id]);
+  }, []);
+  const removePick = useCallback((id) => {
+    picks.current.delete(id);
+    setPickIds((ids) => ids.filter((i) => i !== id));
+  }, []);
+  // hands on the frames, and touching and holding the picks: see Touch.jsx and Grab.jsx
+  const handles = useRef({ touching: {}, holding: {}, frames: {}, picks: {} });
   const strings = cells.length / FRETS;
   const [touches, touch, press, bend] = useTouches(cells, state.instrument, state.velocity);
   const hoverMouse = useCallback((index, velocity) => press('mouse', index, velocity), [press]);
@@ -265,32 +285,40 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, sta
     if (immersive) press('mouse', null);
   }, [immersive, press]);
 
-  // leaving XR puts the Fretboard back where the windowed view looks
+  // leaving XR puts the Fretboard and the side frames back where the windowed view looks
   useEffect(() => {
-    if (inSession || !board.current) return;
-    board.current.position.fromArray(BOARD_POSITION);
-    board.current.quaternion.identity();
-    board.current.scale.setScalar(1);
+    if (inSession) return;
+    for (const [object, position] of [
+      [board.current, BOARD_POSITION],
+      [chordFrame.current, CHORD_FRAME_POSITION],
+      [toolFrame.current, TOOL_FRAME_POSITION],
+    ]) {
+      if (!object) continue;
+      object.position.fromArray(position);
+      object.quaternion.identity();
+      object.scale.setScalar(1);
+    }
   }, [inSession]);
 
-  // controllers dock the panel and the pick until moved (see Grab.jsx); losing them all (to hand
-  // tracking) frees a controller-docked panel, and the pick where it started
+  // controllers dock the panel and the first pick until moved (see Grab.jsx); leaving XR, or losing the
+  // controllers (to hand tracking) with a pick docked, leaves one pick, where it started, and frees a
+  // controller-docked panel
   useEffect(() => {
     const dock = menuDock.current;
-    const pDock = pickDock.current;
-    if (!inSession) {
-      Object.assign(dock, { to: null, placed: false, home: 'left' });
-      Object.assign(pDock, { to: null, placed: false, scale: 1, home: 'right' });
-    } else if (!hasControllers && pDock.to) {
-      pDock.to = null;
-      const p = pick.current;
-      if (p) {
-        p.position.fromArray(PICK_POSITION);
-        p.rotation.fromArray(PICK_ROTATION);
-        p.scale.setScalar(1);
-        p.visible = true;
+    const docked = [...picks.current.values()].some((p) => p.dock.to);
+    if (!inSession || (!hasControllers && docked)) {
+      const [first] = picks.current.keys();
+      const object = picks.current.get(first)?.object ?? null;
+      picks.current = new Map([[first, { object, dock: firstPickDock() }]]);
+      setPickIds([first]);
+      if (inSession && object) {
+        object.position.fromArray(PICK_POSITION);
+        object.rotation.fromArray(PICK_ROTATION);
+        object.scale.setScalar(1);
+        object.visible = true;
       }
     }
+    if (!inSession) Object.assign(dock, { to: null, placed: false, home: 'left' });
     if (inSession && !hasControllers && (dock.to === 'left' || dock.to === 'right')) {
       dock.to = null;
       const panel = menuPanel.current;
@@ -336,19 +364,46 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, sta
         hoverEnabled={!immersive}
         onHover={hoverMouse}
         onBend={bend}
-      >
-        <ChordFrame strings={strings} chart={chart} selected={selectedChord} handles={handles} hoverEnabled={!immersive} onSelect={onChord} />
-        {/* the toolbox's pick only docks on controllers */}
-        {inSession && !phone && <ToolFrame strings={strings} handles={handles} />}
-      </Fretboard>
-      {inSession && !phone && <Pick pickRef={pick} handles={handles} position={PICK_POSITION} rotation={PICK_ROTATION} />}
-      {inSession && <TouchPlay board={board} pick={pick} origin={origin} cells={cells} touch={touch} handles={handles} onChord={onChord} />}
+      />
+      <ChordFrame
+        groupRef={chordFrame}
+        position={CHORD_FRAME_POSITION}
+        chart={chart}
+        selected={selectedChord}
+        handles={handles}
+        hoverEnabled={!immersive}
+        onSelect={onChord}
+      />
+      {/* picks only dock on controllers */}
+      {inSession && !phone && <ToolFrame groupRef={toolFrame} position={TOOL_FRAME_POSITION} handles={handles} />}
+      {inSession &&
+        !phone &&
+        pickIds.map((id) => (
+          <Pick
+            key={id}
+            id={id}
+            pickRef={(object) => {
+              const p = picks.current.get(id);
+              if (p) p.object = object;
+            }}
+            handles={handles}
+            position={PICK_POSITION}
+            rotation={PICK_ROTATION}
+          />
+        ))}
+      {inSession && (
+        <TouchPlay board={board} chordFrame={chordFrame} picks={picks} origin={origin} cells={cells} touch={touch} handles={handles} onChord={onChord} />
+      )}
       {immersive && !hasControllers && <GazePlay board={board} press={press} holding={holding} />}
       <Player
         origin={origin}
         board={board}
-        pick={pick}
-        pickDock={pickDock}
+        chordFrame={chordFrame}
+        toolFrame={toolFrame}
+        picks={picks}
+        spawnPick={spawnPick}
+        removePick={removePick}
+        onChord={onChord}
         menu={menuPanel}
         menuDock={menuDock}
         strings={strings}

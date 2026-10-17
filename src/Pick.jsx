@@ -2,20 +2,21 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-// The pick: a 10 cm guitar pick for XR: Headset. It starts docked on the
-// right controller, pointing forward from it; a grip on it from the other
-// hand takes it, both grips scale and turn it, as with the Fretboard, and let
-// go near a controller it docks there (see Grab.jsx). Every part of it
+// Picks: 10 cm guitar picks for XR: Headset, as many as are taken from the
+// ToolFrame (see SideFrames.jsx). The first starts docked on the right
+// controller, pointing forward from it; a grip on one from the other hand
+// takes it, both grips scale and turn it, as with the Fretboard, and let go
+// near a controller it docks there (see Grab.jsx). Every part of a pick
 // strikes notes, as a controller's tip does (see Touch.jsx). In pick space it
 // lies in the XY plane, face toward +Z, tip pointing down -Y.
 
-// The outline: a rounded triangle, the convex hull of three circles of the same radius, one at each corner
+// The outline: a rounded equilateral triangle, the convex hull of three circles of the same radius, one at each corner
 const CORNER = 0.015;
-const CIRCLES = [
-  { x: 0, y: -0.04, r: CORNER }, // the tip
-  { x: -0.034, y: 0.03, r: CORNER },
-  { x: 0.034, y: 0.03, r: CORNER },
-];
+const CORNER_RADIUS = 0.045; // from the centre to each corner circle's centre
+const CIRCLES = [-90, 30, 150].map((degrees) => {
+  const a = THREE.MathUtils.degToRad(degrees); // -90: the tip
+  return { x: CORNER_RADIUS * Math.cos(a), y: CORNER_RADIUS * Math.sin(a), r: CORNER };
+});
 const THICKNESS = 0.004; // with the bevel, about 6 mm
 const BEVEL = 0.001;
 const SAMPLE_SPACING = 0.012; // between the points that stand for the pick in the touch tests
@@ -63,8 +64,9 @@ export function pickGeometry() {
 /** Points over the whole face, a grid inside plus the outline itself, for the touch tests. */
 function samplePoints() {
   const points = [];
-  for (let x = -0.05; x <= 0.05; x += SAMPLE_SPACING)
-    for (let y = -0.06; y <= 0.05; y += SAMPLE_SPACING) if (outsideOutline(x, y) === 0) points.push(new THREE.Vector3(x, y, 0));
+  const reach = CORNER_RADIUS + CORNER;
+  for (let x = -reach; x <= reach; x += SAMPLE_SPACING)
+    for (let y = -reach; y <= reach; y += SAMPLE_SPACING) if (outsideOutline(x, y) === 0) points.push(new THREE.Vector3(x, y, 0));
   OUTLINE.forEach((p, i) => {
     const next = OUTLINE[(i + 1) % OUTLINE.length];
     const steps = Math.ceil(p.distanceTo(next) / SAMPLE_SPACING);
@@ -103,8 +105,9 @@ let samples = null;
 const worldSamples = [];
 
 /**
- * The pick's sample points in world space (reused between calls), and the
- * radius around each there in metres: together they cover the whole pick.
+ * A pick's sample points in world space (reused between calls, so use them
+ * before the next), and the radius around each there in metres: together
+ * they cover the whole pick.
  */
 export function pickPoints(pick) {
   samples ??= samplePoints();
@@ -115,8 +118,8 @@ export function pickPoints(pick) {
 /**
  * Docked on a controller, in its target-ray space (-Z forward out of the
  * controller): standing upright like a blade, faces to the sides, tip
- * forward, all of it just in front of the controller (its back edge 2.5 cm
- * ahead, its tip 12.5 cm).
+ * forward, all of it just in front of the controller (its back edge about
+ * 3 cm ahead, its tip 13 cm).
  */
 export const PICK_DOCK_POSITION = new THREE.Vector3(0, 0, -0.07);
 export const PICK_DOCK_ROTATION = new THREE.Quaternion().setFromRotationMatrix(
@@ -125,16 +128,16 @@ export const PICK_DOCK_ROTATION = new THREE.Quaternion().setFromRotationMatrix(
 );
 
 /**
- * The pick, in `pickRef`. `handles.current.pick` is { touching, holding }
- * (hand -> true), which light it up like the Fretboard's frame, and `docked`
- * (the hand it's on, or null).
+ * Pick `id`, in `pickRef`. `handles.current.picks[id]` is { touching,
+ * holding } (hand -> true), which light it up like the neck frame, and
+ * `docked` (the hand it's on, or null).
  */
-export function Pick({ pickRef, handles, ...props }) {
+export function Pick({ id, pickRef, handles, ...props }) {
   const geometry = useMemo(pickGeometry, []);
   useEffect(() => () => geometry.dispose(), [geometry]);
   const material = useRef(null);
   useFrame(() => {
-    const { touching = {}, holding = {} } = handles.current.pick ?? {};
+    const { touching = {}, holding = {} } = handles.current.picks?.[id] ?? {};
     const held = Object.values(holding).some(Boolean);
     const touched = Object.values(touching).some(Boolean);
     material.current?.emissive.copy(held ? HELD : touched ? TOUCHED : NONE);

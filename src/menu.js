@@ -1,6 +1,6 @@
 // Options menu model shared by the windowed panel (DOM) and the XR panel
 // (drawn on a canvas): one page of buttons, each "Name: Value", in sections
-// (Music, Analyze, Video) that open and close in place, like dropdowns. A button
+// (Analyze, Music, Video) that open and close in place, like dropdowns. A button
 // cycles its setting or opens a dropdown list of choices beneath it (a
 // chevron on its right). Buttons can share a row, and a run of them can sit
 // in a framed group (see menuBlocks).
@@ -474,13 +474,15 @@ function analyzeItems(state) {
   if (status === 'error') items.push({ id: 'analysis-error', label: error, info: true });
   if (status !== 'done' || !result) return items;
   const scale = SCALES.find((s) => s.id === result.scale);
-  const found = { info: true, row: 'analysis-meter', small: true };
+  // as on the Music section's rows: the tempo beside the meter, the key beside the scale
+  const timing = { info: true, row: 'analysis-timing', small: true };
+  const keyScale = { info: true, row: 'analysis-key', small: true };
   return [
     ...items,
-    { id: 'analysis-tempo', label: `Estimated Tempo: ${result.bpm} BPM`, info: true },
-    { id: 'analysis-meter', label: `Beats per Measure: ${result.beatsPerMeasure}`, ...found },
-    { id: 'analysis-key', label: `Key: ${NOTE_NAMES[result.key]}`, ...found },
-    { id: 'analysis-scale', label: `Scale: ${scale?.name ?? result.scale}`, info: true },
+    { id: 'analysis-bpm', label: `Beats per Minute: ${result.bpm}`, ...timing },
+    { id: 'analysis-meter', label: `Beats per Measure: ${result.beatsPerMeasure}`, ...timing },
+    { id: 'analysis-key', label: `Key: ${NOTE_NAMES[result.key]}`, ...keyScale },
+    { id: 'analysis-scale', label: `Scale: ${scale?.name ?? result.scale}`, ...keyScale },
     ...result.chords.map((chord, i) => ({
       id: `analysis-chord-${i}`,
       label: chordName(chord),
@@ -500,8 +502,8 @@ function analyzeItems(state) {
  * both panels scroll.
  */
 const SECTIONS = [
-  { id: 'music', label: 'Music', icon: 'instrument', items: (state) => [...instrumentItems(state), ...progressionItems(state)] },
   { id: 'analyze', label: 'Analyze', icon: 'analyze', items: analyzeItems },
+  { id: 'music', label: 'Music', icon: 'instrument', items: (state) => [...instrumentItems(state), ...progressionItems(state)] },
   { id: 'video', label: 'Video', icon: 'video', items: videoItems },
 ];
 

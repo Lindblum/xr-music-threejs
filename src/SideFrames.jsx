@@ -72,14 +72,14 @@ export const RESET_EFFECTS = 'reset';
 
 /**
  * Where each side frame's centre starts, across from the Fretboard's
- * (whatever its strings, the NeckFrame is as wide).
+ * (whatever its strings, the NeckFrame is as wide), all at the same scale.
  */
 const neckOuterX = frameSize(1).outerX;
 export const CHORD_FRAME_OFFSET = -(neckOuterX + GAP + FRAME_BORDER + CHORD_INNER_X);
 export const TOOL_FRAME_OFFSET = neckOuterX + GAP + FRAME_BORDER + TOOL_INNER;
 
-/** Where the FilterFrame's centre starts, below the Fretboard's with `strings` rows. */
-export const filterFrameOffsetY = (strings) => -(frameSize(strings).outerY + GAP + FRAME_BORDER + FILTER_INNER_Y);
+/** Where the FilterFrame's centre starts, below the Fretboard's with `strings` rows, scaled by `neckScale`. */
+export const filterFrameOffsetY = (strings, neckScale = 1) => -(frameSize(strings).outerY * neckScale + GAP + FRAME_BORDER + FILTER_INNER_Y);
 
 /** Half the ChordFrame's opening, down, for `rows` degrees. */
 const chordInnerY = (rows) => (Math.max(rows, 1) * ROW) / 2 + MARGIN;

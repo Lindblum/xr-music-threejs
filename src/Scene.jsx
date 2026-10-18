@@ -20,11 +20,13 @@ import { allNotesOff, noteOff, noteOn, setBend } from './audio.js';
 // The Fretboard's centre: a metre above the floor and half a metre in front
 // of the player, as in the old page.
 const BOARD_POSITION = [0, 1, -0.5];
+// The Fretboard, the ChordFrame and the ToolFrame start at half their size; a grip in each hand scales them.
+const START_SCALE = 0.5;
 // The ChordFrame and ToolFrame start either side of it, each its own handle (see SideFrames.jsx).
-const CHORD_FRAME_POSITION = [BOARD_POSITION[0] + CHORD_FRAME_OFFSET, BOARD_POSITION[1], BOARD_POSITION[2]];
-const TOOL_FRAME_POSITION = [BOARD_POSITION[0] + TOOL_FRAME_OFFSET, BOARD_POSITION[1], BOARD_POSITION[2]];
-// The FilterFrame starts centred below it, clear of its frame for however many strings it has.
-const filterFramePosition = (strings) => [BOARD_POSITION[0], BOARD_POSITION[1] + filterFrameOffsetY(strings), BOARD_POSITION[2]];
+const CHORD_FRAME_POSITION = [BOARD_POSITION[0] + CHORD_FRAME_OFFSET * START_SCALE, BOARD_POSITION[1], BOARD_POSITION[2]];
+const TOOL_FRAME_POSITION = [BOARD_POSITION[0] + TOOL_FRAME_OFFSET * START_SCALE, BOARD_POSITION[1], BOARD_POSITION[2]];
+// The FilterFrame starts full size, centred below it, clear of its frame for however many strings it has.
+const filterFramePosition = (strings) => [BOARD_POSITION[0], BOARD_POSITION[1] + filterFrameOffsetY(strings, START_SCALE), BOARD_POSITION[2]];
 // The windowed view looks a little left of centre, so the board clears the panel.
 export const ORBIT_TARGET = [-0.5, 1, -0.5];
 // Without VR controllers (hand tracking, phones) the XR panel starts off to
@@ -308,19 +310,19 @@ export default function Scene({
     if (immersive) press('mouse', null);
   }, [immersive, press]);
 
-  // leaving XR puts the Fretboard and the side frames back where the windowed view looks
+  // leaving XR puts the Fretboard and the side frames back where, and as big as, they started
   useEffect(() => {
     if (inSession) return;
-    for (const [object, position] of [
-      [board.current, BOARD_POSITION],
-      [chordFrame.current, CHORD_FRAME_POSITION],
-      [toolFrame.current, TOOL_FRAME_POSITION],
-      [filterFrame.current, filterFramePosition(strings)],
+    for (const [object, position, scale] of [
+      [board.current, BOARD_POSITION, START_SCALE],
+      [chordFrame.current, CHORD_FRAME_POSITION, START_SCALE],
+      [toolFrame.current, TOOL_FRAME_POSITION, START_SCALE],
+      [filterFrame.current, filterFramePosition(strings), 1],
     ]) {
       if (!object) continue;
       object.position.fromArray(position);
       object.quaternion.identity();
-      object.scale.setScalar(1);
+      object.scale.setScalar(scale);
     }
   }, [inSession]);
 
@@ -381,6 +383,7 @@ export default function Scene({
       <Fretboard
         boardRef={board}
         position={BOARD_POSITION}
+        scale={START_SCALE}
         cells={cells}
         chord={chord}
         touches={touches}
@@ -392,6 +395,7 @@ export default function Scene({
       <ChordFrame
         groupRef={chordFrame}
         position={CHORD_FRAME_POSITION}
+        scale={START_SCALE}
         chart={chart}
         selected={selectedChord}
         handles={handles}
@@ -409,7 +413,7 @@ export default function Scene({
         hoverEnabled={!immersive}
       />
       {/* picks only dock on controllers */}
-      {inSession && !phone && <ToolFrame groupRef={toolFrame} position={TOOL_FRAME_POSITION} handles={handles} />}
+      {inSession && !phone && <ToolFrame groupRef={toolFrame} position={TOOL_FRAME_POSITION} scale={START_SCALE} handles={handles} />}
       {inSession &&
         !phone &&
         pickIds.map((id) => (

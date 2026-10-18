@@ -2,26 +2,28 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FRETS, touchedCells, touchedCellsByPoints, touchesFrame } from './Fretboard.jsx';
-import { pickPoints } from './Pick.jsx';
+import { PICK_DOCK_POSITION, pickPoints } from './Pick.jsx';
 import { chordOfNode, touchedChordNode } from './SideFrames.jsx';
 
 // Playing the Fretboard in XR, as in three.js's haptics demo: each
-// controller's tip (or each hand's index fingertip) is a small mallet.
+// controller's collision sphere (2 cm, orange, in front of it where a pick
+// docks; see controllerTip) or each hand's index fingertip is a small mallet.
 // Touching a cube strikes its note (every cube it touches, if it's between
 // them); a controller kicks as it enters a cube and hums softly while it
 // stays inside. Notes outside the scale only sound while the controller's
 // trigger is held (a tracked hand can't play them). Touching the NeckFrame
 // gives a lighter tap and hum, so you can feel where to take hold of it.
 // Each whole pick is a mallet too: held or docked, it kicks and hums the hand
-// holding it, and that controller's own tip stops playing; that hand's
+// holding it, and that controller's own sphere stops playing (and hides); that hand's
 // trigger lets it play any note. A hand (or a pick) bending notes (see Grab.jsx) plays
 // only those. Each mallet strikes at a velocity (0..1) from its speed, for
 // velocity-sensitive loudness (see Scene.jsx). Any mallet touching a node on
 // the ChordFrame selects its chord, with a kick (see SideFrames.jsx).
 
 const HANDS = ['left', 'right'];
-export const RADIUS = 0.02; // mallet radius, metres
-export const TIP_FORWARD = 0.01; // controller mallet: just ahead of the ray origin, at the tip
+export const RADIUS = 0.02; // a fingertip mallet's radius, metres
+export const CONTROLLER_RADIUS = 0.01; // a controller's collision sphere's: 2 cm across
+const SPHERE_COLOR = '#ff8a1f';
 const STRIKE = [0.8, 40]; // haptic pulse [strength, ms] on entering a cube
 const HUM = [0.2, 60]; // ...and while inside it
 const FRAME_TAP = [0.4, 30]; // on touching the frame
@@ -31,10 +33,15 @@ const HUM_EVERY = 0.05; // seconds between hum pulses, so they overlap into a st
 const FULL_SPEED = 1.5; // metres per second: a mallet this fast strikes at full velocity
 
 const _pose = new THREE.Matrix4();
-const _dir = new THREE.Vector3();
 const _pickCentre = new THREE.Vector3();
 
-/** Each hand's mallet in world space: { position, gamepad?, controller, trigger }, read straight from the XR frame. */
+/**
+ * A controller's collision sphere's centre, into `out`, from its target-ray
+ * pose (world): in front of it, where a docked pick's centre sits.
+ */
+export const controllerTip = (rayMatrix, out) => out.copy(PICK_DOCK_POSITION).applyMatrix4(rayMatrix);
+
+/** Each hand's mallet in world space: { position, radius, gamepad?, controller, trigger }, read straight from the XR frame. */
 function readMallets(frame, referenceSpace, origin) {
   const mallets = {};
   for (const source of frame.session.inputSources) {
@@ -49,12 +56,16 @@ function readMallets(frame, referenceSpace, origin) {
     } else {
       const pose = frame.getPose(source.targetRaySpace, referenceSpace);
       if (!pose) continue;
-      _pose.fromArray(pose.transform.matrix).premultiply(origin.matrixWorld);
-      _dir.set(0, 0, -1).transformDirection(_pose);
-      position.setFromMatrixPosition(_pose).addScaledVector(_dir, TIP_FORWARD);
+      controllerTip(_pose.fromArray(pose.transform.matrix).premultiply(origin.matrixWorld), position);
     }
     const gamepad = source.hand ? null : source.gamepad;
-    mallets[source.handedness] = { position, gamepad, controller: !source.hand, trigger: Boolean(gamepad?.buttons[TRIGGER]?.pressed) };
+    mallets[source.handedness] = {
+      position,
+      radius: source.hand ? RADIUS : CONTROLLER_RADIUS,
+      gamepad,
+      controller: !source.hand,
+      trigger: Boolean(gamepad?.buttons[TRIGGER]?.pressed),
+    };
   }
   return mallets;
 }
@@ -65,14 +76,14 @@ export function pulse(gamepad, [strength, ms]) {
 }
 
 /**
- * Touch play for both hands and the picks. `board`, `chordFrame` and `origin`
+ * Touch play for both hands (controllers' collision spheres, or fingertips) and the picks. `board`, `chordFrame` and `origin`
  * are refs, and `picks.current` a Map of id -> { object } (see Grab.jsx);
  * `cells` the Fretboard's cells; `touch(source, indices)` sounds the notes a
  * source touches and releases the rest. Writes which hands touch the
  * NeckFrame into `handles.current.touching`, and reads which hold each pick
  * (or have it docked) from `handles.current.picks` and which note each
  * mallet is bending from `handles.current.bendingHands`. Renders the
- * controller mallets.
+ * controllers' collision spheres.
  * `touch` also gets each strike's velocity, from the mallet's speed.
  * `onChord(chord)`: a mallet came onto a ChordFrame node; the nodes being
  * touched go into `handles.current.chordTouching` (a Set of indices).
@@ -155,8 +166,8 @@ export function TouchPlay({ board, chordFrame, picks, origin, cells, touch, hand
       }
       if (mallets[hand]) mallets[hand].velocity = velocity(hand, mallets[hand].position);
       else delete motion.current[hand];
-      play(hand, m, RADIUS, true);
-      chooseChord(hand, m && [m.position], RADIUS, m?.gamepad);
+      play(hand, m, m?.radius ?? RADIUS, true);
+      chooseChord(hand, m && [m.position], m?.radius ?? RADIUS, m?.gamepad);
     }
 
     const voices = new Set();
@@ -183,10 +194,11 @@ export function TouchPlay({ board, chordFrame, picks, origin, cells, touch, hand
     handles.current.chordTouching = chordTouching;
   });
 
+  // each controller's collision sphere, as big as what it touches with
   return HANDS.map((hand) => (
     <mesh key={hand} ref={(b) => (balls.current[hand] = b)} visible={false} raycast={() => null}>
-      <sphereGeometry args={[RADIUS * 0.6, 16, 12]} />
-      <meshStandardMaterial color="#ffffff" emissive="#3355ff" emissiveIntensity={0.4} roughness={0.3} />
+      <sphereGeometry args={[CONTROLLER_RADIUS, 16, 12]} />
+      <meshStandardMaterial color={SPHERE_COLOR} emissive={SPHERE_COLOR} emissiveIntensity={0.35} roughness={0.4} />
     </mesh>
   ));
 }

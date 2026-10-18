@@ -111,7 +111,7 @@ const geometry = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
  * with the button down, any note; a click strikes at full velocity. Each cube's mesh
  * carries `userData.playable`, whether a touch sounds it.
  */
-export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, onBend, position }) {
+export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabled, onHover, onBend, position, scale }) {
   const strings = cells.length / FRETS;
   const meshes = useRef([]);
   const bent = useRef([]); // each cell's bend last reported, in semitones
@@ -202,7 +202,7 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
   });
 
   return (
-    <group ref={boardRef} name="Fretboard" position={position}>
+    <group ref={boardRef} name="Fretboard" position={position} scale={scale}>
       <group name="Notes">
         {cells.map((cell, i) => (
           <mesh

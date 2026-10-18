@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { Canvas } from '@react-three/fiber';
 import { XR, createXRStore, useXRSessionModeSupported } from '@react-three/xr';
 import Scene from './Scene.jsx';
@@ -51,9 +52,13 @@ const xrOptions = {
 };
 const store = createXRStore(xrOptions);
 
-/** The phone AR session: the library's defaults plus raw camera access, for passthrough in stereo. */
+/**
+ * The phone AR session: the library's defaults plus raw camera access, for
+ * passthrough in stereo, and the store's overlay element as its DOM overlay,
+ * where XR: Phone AR shows the menu.
+ */
 function enterPhoneAR() {
-  xrOptions.customSessionInit = PHONE_AR_SESSION_INIT;
+  xrOptions.customSessionInit = { ...PHONE_AR_SESSION_INIT, domOverlay: { root: store.getState().domOverlayRoot } };
   try {
     return store.enterAR(); // session options are built synchronously here
   } finally {
@@ -508,6 +513,34 @@ function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
   );
 }
 
+/**
+ * The menu on the screen, in front of whatever view is showing: the windowed
+ * panel, or in XR: Phone AR the same panel over the camera. A touch on it
+ * belongs to it, not to the AR session (no XR select), and `pressing` says
+ * a finger is on it, so gaze play doesn't take it for one held on the view.
+ */
+function ScreenMenu({ menu, notes, pressing }) {
+  const layer = useRef(null);
+  useEffect(() => {
+    const el = layer.current;
+    const swallow = (e) => e.preventDefault();
+    const up = () => (pressing.current = false);
+    el.addEventListener('beforexrselect', swallow);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      el.removeEventListener('beforexrselect', swallow);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, [pressing]);
+  return (
+    <div ref={layer} onPointerDown={() => (pressing.current = true)}>
+      <Hud menu={menu} notes={notes} />
+    </div>
+  );
+}
+
 /** The windowed panel: draws the shared menu model (see XRMenuPanel for XR). */
 function Hud({ menu, notes }) {
   // the gear, top left, opens and closes the panel; closed, the panel holds just the gear
@@ -605,9 +638,13 @@ export default function App() {
   const [phoneStereo, setPhoneStereo] = useState(true); // phone XR: two lens-corrected eyes
   const [handheld, setHandheld] = useState(false); // the motion-sensor view is showing (phones without AR)
   const holding = useRef(false); // a finger held on the motion-sensor view's screen
+  const menuPressed = useRef(false); // a finger on the screen's menu (see ScreenMenu)
   const inXR = sessionActive || handheld;
   // derived from the session, so the panel can never disagree with what is showing
   const view = inXR ? (phone ? (phoneStereo ? 'phoneViewer' : 'phoneAR') : 'xr') : screenView;
+  // XR: Phone AR shows the page's own menu in front of the scene, rather than a panel in it: over the
+  // motion-sensor view, or in an AR session's DOM overlay (without one, the panel in the scene it is)
+  const screenMenu = view === 'phoneAR' && (!sessionActive || store.getState().session?.domOverlayState != null);
   const [error, setError] = useState(null);
 
   // into an XR view, straight from the tap
@@ -746,14 +783,17 @@ export default function App() {
             onExitXR={() => selectView('normal')}
             phone={phone}
             holding={holding}
+            menuPressed={menuPressed}
+            screenMenu={screenMenu}
           />
         </XR>
       </Canvas>
-      {handheld ? (
-        <CardboardOverlay split={phoneStereo} onHold={(held) => (holding.current = held)} onExit={exitXR} />
-      ) : (
-        <Hud menu={menu} notes={notes} />
-      )}
+      {handheld && <CardboardOverlay split={phoneStereo} onHold={(held) => (holding.current = held)} onExit={exitXR} />}
+      {/* the menu on the screen: windowed, or over XR: Phone AR (in the AR session's DOM overlay, or over the motion-sensor view) */}
+      {(!inXR || screenMenu) &&
+        (sessionActive
+          ? createPortal(<ScreenMenu menu={menu} notes={notes} pressing={menuPressed} />, store.getState().domOverlayRoot)
+          : <ScreenMenu menu={menu} notes={notes} pressing={menuPressed} />)}
     </>
   );
 }

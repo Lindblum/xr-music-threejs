@@ -248,7 +248,23 @@ function useTouches(cells, instrument, velocitySensitive) {
  * 0..1), set by `onEffectSlide(id, amount)`, and `onEffectSwitch(id)` presses a
  * switch there: an effect's, or RESET_EFFECTS.
  */
-export default function Scene({ cells, chord, chart, selectedChord, onChord, effectAmounts, onEffectSlide, onEffectSwitch, state, menu, phone, holding, onExitXR }) {
+export default function Scene({
+  cells,
+  chord,
+  chart,
+  selectedChord,
+  onChord,
+  effectAmounts,
+  onEffectSlide,
+  onEffectSwitch,
+  state,
+  menu,
+  phone,
+  holding,
+  menuPressed,
+  screenMenu,
+  onExitXR,
+}) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -412,7 +428,7 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, eff
       {inSession && (
         <TouchPlay board={board} chordFrame={chordFrame} picks={picks} origin={origin} cells={cells} touch={touch} handles={handles} onChord={onChord} />
       )}
-      {immersive && !hasControllers && <GazePlay board={board} press={press} holding={holding} />}
+      {immersive && !hasControllers && <GazePlay board={board} press={press} holding={holding} menuPressed={menuPressed} />}
       <Player
         origin={origin}
         board={board}
@@ -432,7 +448,8 @@ export default function Scene({ cells, chord, chart, selectedChord, onChord, eff
         handles={handles}
         onExitXR={onExitXR}
       >
-        {immersive && (
+        {/* with `screenMenu`, the menu is on the screen in front of the scene instead (see App.jsx) */}
+        {immersive && !screenMenu && (
           <XRMenuPanel
             {...menu}
             groupRef={menuPanel}

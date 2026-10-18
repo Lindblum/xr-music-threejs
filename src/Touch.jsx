@@ -199,16 +199,17 @@ const _direction = new THREE.Vector3();
  * centre of view sounds, as hovering does with a mouse. Notes outside the
  * scale need a finger held on the screen: `holding` is a ref set by the
  * motion-sensor view's overlay, and in an AR session a touch shows up as a
- * screen input source.
+ * screen input source, unless it's on the on-screen menu (`menuPressed`).
  */
-export function GazePlay({ board, press, holding }) {
+export function GazePlay({ board, press, holding, menuPressed }) {
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   useEffect(() => () => press('gaze', null), [press]);
 
   useFrame(({ camera }, _, frame) => {
     const notes = board.current?.getObjectByName('Notes');
     if (!notes) return;
-    const touching = holding.current || Boolean(frame && [...frame.session.inputSources].some((s) => s.targetRayMode === 'screen'));
+    const touching =
+      holding.current || (!menuPressed?.current && Boolean(frame && [...frame.session.inputSources].some((s) => s.targetRayMode === 'screen')));
     camera.getWorldPosition(_origin);
     camera.getWorldDirection(_direction);
     raycaster.set(_origin, _direction);

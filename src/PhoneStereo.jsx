@@ -40,10 +40,15 @@ function updateLayout(gl, framebufferWidth, framebufferHeight) {
   layout.height = portrait ? framebufferWidth : framebufferHeight;
 }
 
-/** The phone AR session's options: the library's defaults plus raw camera access, for passthrough in stereo. */
+/**
+ * The phone AR session's options: the library's defaults plus raw camera
+ * access, for passthrough in stereo, and a DOM overlay, so a single view can
+ * show the page's own menu over it (the session's `domOverlay.root` is added
+ * when it starts: see App.jsx).
+ */
 export const PHONE_AR_SESSION_INIT = {
   requiredFeatures: ['local-floor'],
-  optionalFeatures: ['camera-access', 'anchors', 'hit-test', 'plane-detection', 'mesh-detection', 'hand-tracking'],
+  optionalFeatures: ['camera-access', 'dom-overlay', 'anchors', 'hit-test', 'plane-detection', 'mesh-detection', 'hand-tracking'],
 };
 
 export function PhoneStereoXR() {

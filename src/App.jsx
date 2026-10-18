@@ -13,8 +13,12 @@ import { EFFECTS, INSTRUMENTS, loadInstrument, playChord, setBeatGrid, setEffect
 import { SCALES, TUNINGS, builtChord, chordNotes, chordPitchClasses, keyChordChart, mod12, stockChords } from './music.js';
 import { useProgression } from './progression.js';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './settings.js';
+import { startRecording, stopRecording } from './recorder.js';
+import { analyze } from './analyze.js';
 import { RESET_EFFECTS } from './SideFrames.jsx';
 import {
+  BEATS_PER_MEASURE,
+  BPMS,
   CHORD_PREFIX,
   DROPDOWNS,
   XR_VIEWS,
@@ -187,6 +191,20 @@ function useMusicState() {
           next.splice(to, 0, ...next.splice(from, 1));
           return next;
         }),
+      /**
+       * Takes on what Analyze heard ({ bpm, beatsPerMeasure, key, scale,
+       * chords }): the nearest tempo on offer, the meter, the key and scale,
+       * and its chords as the progression (as they are: the key change mustn't move them).
+       */
+      applyAnalysis: (result) => {
+        keyWas.current = result.key;
+        setKey(result.key);
+        setBpm(BPMS.reduce((best, b) => (Math.abs(b - result.bpm) < Math.abs(best - result.bpm) ? b : best)));
+        setBeatsPerMeasure(BEATS_PER_MEASURE.includes(result.beatsPerMeasure) ? result.beatsPerMeasure : 4);
+        setScale(SCALES.find((s) => s.id === result.scale) ?? SCALES[0]);
+        setProgression(result.chords);
+        setDropdown(null);
+      },
       /** Replaces the progression with a stock one in `key`, and switches to its scale. */
       applyStock: (stock, key) => {
         setProgression(stockChords(stock, key));
@@ -371,6 +389,7 @@ function MenuButton({ item, onSelect, queue }) {
   const drag = queue?.drag;
   const className = [
     'menu-btn',
+    item.info && 'info',
     item.compact && 'compact',
     item.small && 'small',
     item.current && 'current',
@@ -381,6 +400,14 @@ function MenuButton({ item, onSelect, queue }) {
   ]
     .filter(Boolean)
     .join(' ');
+  // just text to read: a button's shape, not one
+  if (item.info)
+    return (
+      <div className={className} title={item.title}>
+        {!item.compact && item.icon && <Icon name={item.icon} />}
+        {item.compact ? <span className="option-label">{item.label}</span> : <Label text={item.label} />}
+      </div>
+    );
   return (
     <button
       className={className}
@@ -639,6 +666,40 @@ export default function App() {
   const [handheld, setHandheld] = useState(false); // the motion-sensor view is showing (phones without AR)
   const holding = useRef(false); // a finger held on the motion-sensor view's screen
   const menuPressed = useRef(false); // a finger on the screen's menu (see ScreenMenu)
+  // Analyze: { status: 'idle' | 'recording' | 'analyzing' | 'done' | 'error', seconds, result, error } (see menu.js)
+  const [analysis, setAnalysis] = useState({ status: 'idle' });
+  const recordingSince = useRef(0);
+  useEffect(() => {
+    if (analysis.status !== 'recording') return;
+    const tick = setInterval(() => setAnalysis((a) => ({ ...a, seconds: (performance.now() - recordingSince.current) / 1000 })), 250);
+    return () => clearInterval(tick);
+  }, [analysis.status]);
+  /** Stop: what was recorded analysed, once "Analyzing…" has had a frame to show. */
+  const finishRecording = () => {
+    const recorded = stopRecording();
+    if (!recorded) return;
+    setAnalysis({ status: 'analyzing' });
+    setTimeout(() => {
+      const result = analyze(recorded.samples, recorded.sampleRate);
+      setAnalysis(result.error ? { status: 'error', error: result.error } : { status: 'done', result });
+    }, 50);
+  };
+  const finishLatest = useRef(finishRecording);
+  finishLatest.current = finishRecording;
+  /** Record / Stop. */
+  const toggleRecording = async () => {
+    if (analysis.status === 'recording') return finishRecording();
+    if (analysis.status === 'analyzing') return;
+    try {
+      await startRecording({ onLimit: () => finishLatest.current() });
+      recordingSince.current = performance.now();
+      setAnalysis({ status: 'recording', seconds: 0 });
+    } catch (e) {
+      // inside a headset's session the browser may not be able to ask
+      const error = sessionActive && /refused/.test(e.message) ? 'Allow the microphone outside XR first' : e.message;
+      setAnalysis({ status: 'error', error });
+    }
+  };
   const inXR = sessionActive || handheld;
   // derived from the session, so the panel can never disagree with what is showing
   const view = inXR ? (phone ? (phoneStereo ? 'phoneViewer' : 'phoneAR') : 'xr') : screenView;
@@ -719,6 +780,11 @@ export default function App() {
       if (!player.playing) playSelected(state.progression[index], state.playOnSelect, state.instrument);
     }
     else if (id === 'stop') player.stop();
+    else if (id === 'record') toggleRecording();
+    else if (id === 'applyAnalysis' && analysis.result) {
+      player.stop();
+      actions.applyAnalysis(analysis.result);
+    }
     else if (id === 'addChord') actions.addChord(builtChord(state.draft, state.key));
     else if (id === 'clearProgression') actions.clearProgression();
   };
@@ -756,7 +822,7 @@ export default function App() {
     labels,
     status,
     open: state.menuOpen,
-    items: menuItems({ ...state, view, player }, env),
+    items: menuItems({ ...state, view, player, analysis }, env),
     onSelect,
     onQueueEdit,
   };

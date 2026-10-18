@@ -150,10 +150,17 @@ const triangle = wave('M2.5 12 7.25 5l9.5 14 4.75-7');
 const sawtooth = wave('M2.5 16.5 12 7.5v9l9.5-9v9');
 const square = wave('M2.5 12V6.5H12v11h9.5V12');
 const sample = wave('M3 11v2M6 9v6M9 5v14M12 7.5v9M15 9.5v5M18 10.75v2.5M21 11.5v1');
+// Record: a filled dot; Analyze: a waveform under a magnifying glass
+const record = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<circle cx="12" cy="12" r="6.5" fill="currentColor"/>
+</svg>`;
+const analyze = wave('M2.5 12h1.5M6 9v6M9 7v10M12 10v4M14.5 14.5a4.5 4.5 0 1 0 0-.01M17.75 17.75 21.5 21.5');
 
 const ICONS = {
   instrument: recolour(music),
   sample,
+  record,
+  analyze,
   sine,
   triangle,
   sawtooth,

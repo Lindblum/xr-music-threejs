@@ -244,40 +244,67 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
   );
 }
 
-// The NeckFrame: a moulding around the notes, like a picture frame
+// The NeckFrame: a moulding around the notes, like a picture frame. Every
+// frame's moulding (see FrameMoulding) is the same width and depth in the
+// world, whatever its frame's scale: scaled, the opening grows or shrinks
+// with what's in it, and the moulding keeps to these.
 const FRAME_MARGIN = 0.01; // between the outer cubes and the frame
-export const FRAME_BORDER = 0.05; // moulding width
-const FRAME_DEPTH = 0.04;
-const FRAME_BEVEL = 0.006;
+export const FRAME_BORDER = 0.02; // moulding width, world metres
+const FRAME_DEPTH = 0.02; // ...and depth
 export const FRAME_COLOR = '#6b4a2b';
-const FRAME_TOUCHED = new THREE.Color('#3355ff').multiplyScalar(0.35);
-const FRAME_HELD = new THREE.Color('#3355ff').multiplyScalar(0.7);
 
-/** Half-sizes of the NeckFrame's opening and of its outside, in Fretboard space. */
-export function frameSize(strings) {
+/**
+ * Half-sizes of the NeckFrame's opening and of its outside, in Fretboard
+ * space, for a Fretboard at `scale` (the moulding's world width is fixed).
+ */
+export function frameSize(strings, scale = 1) {
   const innerX = (FRETS * SPACING) / 2 + FRAME_MARGIN;
   const innerY = (strings * SPACING) / 2 + FRAME_MARGIN;
-  return { innerX, innerY, outerX: innerX + FRAME_BORDER, outerY: innerY + FRAME_BORDER };
+  const border = FRAME_BORDER / scale;
+  return { innerX, innerY, outerX: innerX + border, outerY: innerY + border };
 }
 
-/** A picture frame's moulding around an opening `innerX` by `innerY` (half-sizes), centred on its plane. */
-export function frameGeometry(innerX, innerY) {
-  const outerX = innerX + FRAME_BORDER;
-  const outerY = innerY + FRAME_BORDER;
-  const shape = new THREE.Shape();
-  shape.moveTo(-outerX, -outerY).lineTo(outerX, -outerY).lineTo(outerX, outerY).lineTo(-outerX, outerY).closePath();
-  const hole = new THREE.Path();
-  hole.moveTo(-innerX, -innerY).lineTo(-innerX, innerY).lineTo(innerX, innerY).lineTo(innerX, -innerY).closePath();
-  shape.holes.push(hole);
-  const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth: FRAME_DEPTH - 2 * FRAME_BEVEL,
-    bevelEnabled: true,
-    bevelThickness: FRAME_BEVEL,
-    bevelSize: FRAME_BEVEL,
-    bevelSegments: 2,
+export const FRAME_TOUCHED = new THREE.Color('#3355ff').multiplyScalar(0.35);
+export const FRAME_HELD = new THREE.Color('#3355ff').multiplyScalar(0.7);
+const barGeometry = new THREE.BoxGeometry(1, 1, 1); // stretched into each bar of a moulding
+const _worldScale = new THREE.Vector3();
+
+/**
+ * A picture frame's moulding, named `name`, around an opening `innerX` by
+ * `innerY` (half-sizes, in its frame's space), centred on its plane: four
+ * bars, refitted every frame so they're FRAME_BORDER wide and FRAME_DEPTH
+ * deep in the world whatever the frame's scale. `glow()` is its emissive
+ * colour, asked every frame.
+ */
+export function FrameMoulding({ name, innerX, innerY, glow }) {
+  const group = useRef(null);
+  const bars = useRef([]);
+  const material = useMemo(() => new THREE.MeshStandardMaterial({ color: FRAME_COLOR, roughness: 0.55, metalness: 0.05 }), []);
+  useEffect(() => () => material.dispose(), [material]);
+  useFrame(() => {
+    if (!group.current) return;
+    const s = group.current.getWorldScale(_worldScale).x;
+    const b = FRAME_BORDER / s;
+    const d = FRAME_DEPTH / s;
+    const [left, right, bottom, top] = bars.current;
+    // the sides run the full height, corners included; the top and bottom fit between them
+    left?.scale.set(b, 2 * (innerY + b), d);
+    left?.position.set(-(innerX + b / 2), 0, 0);
+    right?.scale.set(b, 2 * (innerY + b), d);
+    right?.position.set(innerX + b / 2, 0, 0);
+    bottom?.scale.set(2 * innerX, b, d);
+    bottom?.position.set(0, -(innerY + b / 2), 0);
+    top?.scale.set(2 * innerX, b, d);
+    top?.position.set(0, innerY + b / 2, 0);
+    material.emissive.copy(glow());
   });
-  geometry.translate(0, 0, -(FRAME_DEPTH - 2 * FRAME_BEVEL) / 2); // centred on the notes' plane
-  return geometry;
+  return (
+    <group ref={group} name={name}>
+      {[0, 1, 2, 3].map((i) => (
+        <mesh key={i} ref={(m) => (bars.current[i] = m)} geometry={barGeometry} material={material} />
+      ))}
+    </group>
+  );
 }
 
 /**
@@ -286,23 +313,14 @@ export function frameGeometry(innerX, innerY) {
  * more while held.
  */
 function NeckFrame({ strings, handles }) {
-  const geometry = useMemo(() => {
-    const { innerX, innerY } = frameSize(strings);
-    return frameGeometry(innerX, innerY);
-  }, [strings]);
-  useEffect(() => () => geometry.dispose(), [geometry]);
-  const material = useRef(null);
-  useFrame(() => {
+  const { innerX, innerY } = frameSize(strings);
+  const glow = () => {
     const { touching, holding } = handles.current;
     const held = Object.values(holding).some(Boolean);
     const touched = Object.values(touching).some(Boolean) || Object.values(handles.current.aiming ?? {}).includes('board');
-    material.current?.emissive.copy(held ? FRAME_HELD : touched ? FRAME_TOUCHED : NO_EMISSIVE);
-  });
-  return (
-    <mesh name="NeckFrame" geometry={geometry}>
-      <meshStandardMaterial ref={material} color={FRAME_COLOR} roughness={0.55} metalness={0.05} />
-    </mesh>
-  );
+    return held ? FRAME_HELD : touched ? FRAME_TOUCHED : NO_EMISSIVE;
+  };
+  return <FrameMoulding name="NeckFrame" innerX={innerX} innerY={innerY} glow={glow} />;
 }
 
 const _local = new THREE.Vector3();
@@ -315,17 +333,18 @@ export function touchesFrame(board, strings, world, radius) {
 
 /**
  * Whether a sphere at `world` (radius in metres) touches a frame's moulding
- * (see frameGeometry) centred in `object`'s space, around an opening
+ * (see FrameMoulding) centred in `object`'s space, around an opening
  * `innerX` by `innerY` (half-sizes).
  */
 export function touchesMoulding(object, innerX, innerY, world, radius) {
   object.worldToLocal(_local.copy(world));
-  const r = radius / object.scale.x;
-  const outerX = innerX + FRAME_BORDER;
-  const outerY = innerY + FRAME_BORDER;
+  const s = object.scale.x;
+  const r = radius / s;
+  const outerX = innerX + FRAME_BORDER / s;
+  const outerY = innerY + FRAME_BORDER / s;
   const x = Math.abs(_local.x);
   const y = Math.abs(_local.y);
-  if (Math.abs(_local.z) > FRAME_DEPTH / 2 + r || x > outerX + r || y > outerY + r) return false;
+  if (Math.abs(_local.z) > FRAME_DEPTH / s / 2 + r || x > outerX + r || y > outerY + r) return false;
   return x > innerX - r || y > innerY - r; // on the moulding, not in the opening
 }
 
@@ -333,7 +352,7 @@ export function touchesMoulding(object, innerX, innerY, world, radius) {
 export function nearFrame(board, strings, world, reach) {
   board.worldToLocal(_local.copy(world));
   const r = reach / board.scale.x;
-  const { outerX, outerY } = frameSize(strings);
+  const { outerX, outerY } = frameSize(strings, board.scale.x);
   return Math.abs(_local.x) < outerX + r && Math.abs(_local.y) < outerY + r && Math.abs(_local.z) < r;
 }
 

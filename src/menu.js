@@ -1,6 +1,6 @@
 // Options menu model shared by the windowed panel (DOM) and the XR panel
 // (drawn on a canvas): one page of buttons, each "Name: Value", in sections
-// (Music, Video) that open and close in place, like dropdowns. A button
+// (Music, Analyze, Video) that open and close in place, like dropdowns. A button
 // cycles its setting or opens a dropdown list of choices beneath it (a
 // chevron on its right). Buttons can share a row, and a run of them can sit
 // in a framed group (see menuBlocks).
@@ -283,7 +283,7 @@ function progressionItems(state) {
       id: 'stock',
       label: `Stock Progression: ${stock < 0 ? '—' : STOCK_PROGRESSIONS[stock].name}`,
       icon: 'progression',
-      dropdown: dropdown(state, 'stock', STOCK_PROGRESSIONS.map((s) => s.name), stock),
+      dropdown: dropdown(state, 'stock', STOCK_PROGRESSIONS.map((s) => s.name), stock, undefined, 3),
     },
     // the key and scale the degree triads come from (and the board shows)
     {
@@ -445,6 +445,55 @@ function videoItems(state, env) {
   ];
 }
 
+/** Chords found by Analyze, to a row. */
+const ANALYSIS_COLUMNS = 4;
+
+/** m:ss */
+const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+
+/**
+ * The Analyze section: Record / Stop for the microphone, then what was heard
+ * (`state.analysis`: { status: 'idle' | 'recording' | 'analyzing' | 'done' |
+ * 'error', seconds, result, error }, see analyze.js), shown as `info` rows,
+ * the chords one a measure, four to a row in a framed group, and Apply to
+ * Progression.
+ */
+function analyzeItems(state) {
+  const { status = 'idle', seconds = 0, result, error } = state.analysis ?? {};
+  const recording = status === 'recording';
+  const items = [
+    {
+      id: 'record',
+      label: recording ? `Stop: ${clock(seconds)}` : status === 'analyzing' ? 'Analyzing…' : 'Record',
+      sizeLabel: 'Stop: 0:00',
+      icon: recording ? 'stop' : 'record',
+      disabled: status === 'analyzing',
+      title: 'Records from the microphone (up to a minute); Stop works out its tempo, meter, key, scale and chords',
+    },
+  ];
+  if (status === 'error') items.push({ id: 'analysis-error', label: error, info: true });
+  if (status !== 'done' || !result) return items;
+  const scale = SCALES.find((s) => s.id === result.scale);
+  const found = { info: true, row: 'analysis-meter', small: true };
+  return [
+    ...items,
+    { id: 'analysis-tempo', label: `Estimated Tempo: ${result.bpm} BPM`, info: true },
+    { id: 'analysis-meter', label: `Beats per Measure: ${result.beatsPerMeasure}`, ...found },
+    { id: 'analysis-key', label: `Key: ${NOTE_NAMES[result.key]}`, ...found },
+    { id: 'analysis-scale', label: `Scale: ${scale?.name ?? result.scale}`, info: true },
+    ...result.chords.map((chord, i) => ({
+      id: `analysis-chord-${i}`,
+      label: chordName(chord),
+      info: true,
+      compact: true,
+      group: 'analysis',
+      cols: ANALYSIS_COLUMNS,
+      row: `analysis-chords-${Math.floor(i / ANALYSIS_COLUMNS)}`,
+    })),
+    { id: 'applyAnalysis', label: 'Apply to Progression', icon: 'progression', title: 'Sets the tempo, meter, key and scale, and replaces the progression with these chords' },
+  ];
+}
+
 /**
  * The sections, in order: each one's header and the buttons it opens onto.
  * Music: the sound and the board, then the progression; a long one, which
@@ -452,6 +501,7 @@ function videoItems(state, env) {
  */
 const SECTIONS = [
   { id: 'music', label: 'Music', icon: 'instrument', items: (state) => [...instrumentItems(state), ...progressionItems(state)] },
+  { id: 'analyze', label: 'Analyze', icon: 'analyze', items: analyzeItems },
   { id: 'video', label: 'Video', icon: 'video', items: videoItems },
 ];
 
@@ -459,7 +509,8 @@ const SECTIONS = [
  * The buttons: each section's header, and its buttons beneath while it's
  * open (`state.sections`: id -> true). Items: { id, label ("Name: Value", see
  * splitLabel), icon?, disabled?, title?, section?, dropdown?, and for
- * layout row?, span?, cols?, group?, indent?, small?, compact?, current?, sizeLabel? }. `section`:
+ * layout row?, span?, cols?, group?, indent?, info?, small?, compact?, current?, sizeLabel? }. `info`: just
+ * text to read, in a button's shape but not one. `section`:
  * { open }, a section's header ("section:<id>" opens or closes it), drawn
  * with a chevron at the far right, like a dropdown's. `dropdown`: { open,
  * options: [{ id, label, selected }] }, drawn with a chevron at the far
@@ -546,6 +597,12 @@ export function possibleLabels(env) {
     ),
     // every stock progression's name
     ...STOCK_PROGRESSIONS.map((stock) => ({ progression: stockChords(stock, 0) })),
+    // Analyze: recording, and the longest results it can show
+    { analysis: { status: 'recording', seconds: 59 } },
+    { analysis: { status: 'analyzing' } },
+    ...SCALES.map((scale) => ({
+      analysis: { status: 'done', result: { bpm: 200, beatsPerMeasure: 7, key: 1, scale: scale.id, chords: Array(4).fill(longest) } },
+    })),
     {
       progression: Array(12).fill(longest),
       beatsPerMeasure: 7,

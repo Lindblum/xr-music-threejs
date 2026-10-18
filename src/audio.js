@@ -418,6 +418,9 @@ export function setEffectAmount(id, amount) {
   stages[id]?.apply(amount, ctx.currentTime);
 }
 
+/** The app's audio context, made on first use: for recording the microphone through it (see recorder.js). */
+export const audioContext = () => context();
+
 /** Browsers start audio suspended until a tap or key press: call from one. */
 export function unlockAudio() {
   const c = context();

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { FRAME_BORDER, FRAME_COLOR, frameGeometry, frameSize, touchesMoulding } from './Fretboard.jsx';
+import { FRAME_BORDER, FRAME_HELD, FRAME_TOUCHED, FrameMoulding, frameSize, touchesMoulding } from './Fretboard.jsx';
 import { chordName, noteCss, noteRgb, sameChord } from './music.js';
 import { PICK_COLOR, pickGeometry } from './Pick.jsx';
 import { EFFECTS } from './audio.js';
@@ -44,8 +44,6 @@ const RAISE_RATE = 10; // per second, as the Fretboard's notes
 const TOUCH_EMISSIVE = new THREE.Color(0, 0, 1);
 const SELECTED_EMISSIVE = new THREE.Color(0.18, 0.18, 0.18);
 const NO_EMISSIVE = new THREE.Color(0, 0, 0);
-const FRAME_TOUCHED = new THREE.Color('#3355ff').multiplyScalar(0.35);
-const FRAME_HELD = new THREE.Color('#3355ff').multiplyScalar(0.7);
 const CHORD_INNER_X = COLUMN + MARGIN; // half the ChordFrame's opening, across
 const TOOL_INNER = 0.05; // half the ToolFrame's opening, each way
 const TOOL_PICK_SCALE = 0.6; // of a full-size pick
@@ -72,14 +70,17 @@ export const RESET_EFFECTS = 'reset';
 
 /**
  * Where each side frame's centre starts, across from the Fretboard's
- * (whatever its strings, the NeckFrame is as wide), all at the same scale.
+ * (whatever its strings, the NeckFrame is as wide), the Fretboard and the
+ * frame both at `scale`: their openings and the gap scale, their mouldings
+ * (FRAME_BORDER each) don't.
  */
-const neckOuterX = frameSize(1).outerX;
-export const CHORD_FRAME_OFFSET = -(neckOuterX + GAP + FRAME_BORDER + CHORD_INNER_X);
-export const TOOL_FRAME_OFFSET = neckOuterX + GAP + FRAME_BORDER + TOOL_INNER;
+const neckInnerX = frameSize(1).innerX;
+export const chordFrameOffset = (scale) => -(scale * (neckInnerX + GAP + CHORD_INNER_X) + 2 * FRAME_BORDER);
+export const toolFrameOffset = (scale) => scale * (neckInnerX + GAP + TOOL_INNER) + 2 * FRAME_BORDER;
 
-/** Where the FilterFrame's centre starts, below the Fretboard's with `strings` rows, scaled by `neckScale`. */
-export const filterFrameOffsetY = (strings, neckScale = 1) => -(frameSize(strings).outerY * neckScale + GAP + FRAME_BORDER + FILTER_INNER_Y);
+/** Where the FilterFrame's centre starts, at `scale`, below the Fretboard's with `strings` rows, at `neckScale`. */
+export const filterFrameOffsetY = (strings, neckScale = 1, scale = 1) =>
+  -(neckScale * (frameSize(strings).innerY + GAP) + 2 * FRAME_BORDER + scale * FILTER_INNER_Y);
 
 /** Half the ChordFrame's opening, down, for `rows` degrees. */
 const chordInnerY = (rows) => (Math.max(rows, 1) * ROW) / 2 + MARGIN;
@@ -120,24 +121,18 @@ function chartNodes(chart) {
 
 /**
  * A side frame's moulding around an opening `innerX` by `innerY`, named
- * `name`. It glows while touched or pointed at, more while held:
- * `handles.current.frames[target]` is { touching, holding } (hand -> true).
+ * `name` (see FrameMoulding). It glows while touched or pointed at, more
+ * while held: `handles.current.frames[target]` is { touching, holding }
+ * (hand -> true).
  */
 function Moulding({ name, target, innerX, innerY, handles }) {
-  const geometry = useMemo(() => frameGeometry(innerX, innerY), [innerX, innerY]);
-  useEffect(() => () => geometry.dispose(), [geometry]);
-  const material = useRef(null);
-  useFrame(() => {
+  const glow = () => {
     const { touching = {}, holding = {} } = handles.current.frames?.[target] ?? {};
     const held = Object.values(holding).some(Boolean);
     const touched = Object.values(touching).some(Boolean);
-    material.current?.emissive.copy(held ? FRAME_HELD : touched ? FRAME_TOUCHED : NO_EMISSIVE);
-  });
-  return (
-    <mesh name={name} geometry={geometry}>
-      <meshStandardMaterial ref={material} color={FRAME_COLOR} roughness={0.55} metalness={0.05} />
-    </mesh>
-  );
+    return held ? FRAME_HELD : touched ? FRAME_TOUCHED : NO_EMISSIVE;
+  };
+  return <FrameMoulding name={name} innerX={innerX} innerY={innerY} glow={glow} />;
 }
 
 /**

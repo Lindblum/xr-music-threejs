@@ -180,6 +180,36 @@ export const STOCK_PROGRESSIONS = [
     chords: [[8, 'maj'], [3, 'maj'], [10, 'maj'], [5, 'maj'], [0, 'maj'], [0, 'maj'], [0, 'maj'], [0, 'maj']],
   },
   { id: 'louie', name: 'Louie Louie', scale: 'major', chords: [[0, 'maj'], [5, 'maj'], [7, 'min'], [5, 'maj']] },
+  { id: 'laBamba', name: 'La Bamba', scale: 'major', chords: [[0, 'maj'], [5, 'maj'], [7, 'maj'], [5, 'maj']] },
+  // I–vi–ii–V, the turnaround at the heart of Rhythm Changes
+  { id: 'turnaround', name: 'Turnaround', scale: 'major', chords: [[0, 'maj', 'maj7'], [9, 'min', 'dom7'], [2, 'min', 'dom7'], [7, 'maj', 'dom7']] },
+  // dominant 7ths round the circle of fifths home, as in "Salty Dog"
+  {
+    id: 'ragtime',
+    name: 'Ragtime',
+    scale: 'major',
+    chords: [[4, 'maj', 'dom7'], [9, 'maj', 'dom7'], [2, 'maj', 'dom7'], [7, 'maj', 'dom7'], [0, 'maj'], [0, 'maj']],
+  },
+  // I–III–IV–iv: a major III and a borrowed minor iv
+  { id: 'creep', name: 'Creep', scale: 'major', chords: [[0, 'maj'], [4, 'maj'], [5, 'maj'], [5, 'min']] },
+  { id: 'rockFlat7', name: '♭VII–IV–I', scale: 'major', chords: [[10, 'maj'], [5, 'maj'], [0, 'maj'], [0, 'maj']] },
+  {
+    id: 'eightBar',
+    name: '8-Bar Blues',
+    scale: 'blues',
+    chords: [0, 7, 5, 5, 0, 7, 0, 7].map((step) => [step, 'maj', 'dom7']),
+  },
+  {
+    id: 'minorBlues',
+    name: 'Minor Blues',
+    scale: 'blues',
+    chords: [0, 0, 0, 0, 5, 5, 0, 0, 7, 5, 0, 0].map((step) => [step, step === 7 ? 'maj' : 'min', 'dom7']),
+  },
+  { id: 'minorIIVI', name: 'Minor ii–V–i', scale: 'minor', chords: [[2, 'hdim'], [7, 'maj', 'dom7'], [0, 'min', 'dom7'], [0, 'min', 'dom7']] },
+  // i–VI–III–VII
+  { id: 'epicMinor', name: 'Epic Minor', scale: 'minor', chords: [[0, 'min'], [8, 'maj'], [3, 'maj'], [10, 'maj']] },
+  // i7–IV7, a minor chord and the major IV of the Dorian mode, as in "Oye Como Va"
+  { id: 'dorian', name: 'Dorian Vamp', scale: 'minor', chords: [[0, 'min', 'dom7'], [5, 'maj', 'dom7']] },
 ];
 
 /** A stock progression's chords in `key`. */

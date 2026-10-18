@@ -79,6 +79,9 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 }
 .menu-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.4); }
 .menu-btn:disabled { opacity: 0.45; cursor: default; }
+/* just text to read, in a button's shape: no hover, a fainter frame */
+.menu-btn.info { cursor: default; background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.08); }
+.menu-btn.info:hover { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.08); }
 .menu-btn .label { display: flex; flex: 1; gap: 18px; justify-content: space-between; min-width: 0; white-space: nowrap; line-height: 1.25; }
 .menu-btn .name { flex: none; }
 .menu-btn .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }

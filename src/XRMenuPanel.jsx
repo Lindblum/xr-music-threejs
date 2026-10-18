@@ -199,9 +199,11 @@ function centredText(ctx, text, x, cy) {
   ctx.fillText(text, x, cy + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
 }
 
-function drawButtonFrame(ctx, r, { hot, disabled, current, color, dim, beats, beat }) {
+function drawButtonFrame(ctx, r, { hot, disabled, info, current, color, dim, beats, beat }) {
   roundRect(ctx, r.x, r.y, r.w, r.h, 18);
-  ctx.fillStyle = disabled
+  ctx.fillStyle = info
+    ? 'rgba(255, 255, 255, 0.03)'
+    : disabled
     ? 'rgba(255, 255, 255, 0.04)'
     : current
       ? (dim ?? color ?? 'rgba(80, 110, 255, 0.45)')
@@ -218,7 +220,7 @@ function drawButtonFrame(ctx, r, { hot, disabled, current, color, dim, beats, be
     ctx.restore();
     roundRect(ctx, r.x, r.y, r.w, r.h, 18);
   }
-  ctx.strokeStyle = hot || (current && color) ? 'rgba(255, 255, 255, 0.85)' : current ? 'rgba(150, 175, 255, 0.9)' : 'rgba(255, 255, 255, 0.16)';
+  ctx.strokeStyle = hot || (current && color) ? 'rgba(255, 255, 255, 0.85)' : current ? 'rgba(150, 175, 255, 0.9)' : info ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = hot || current ? 4 : 2;
   ctx.stroke();
 }
@@ -375,8 +377,9 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       const { item } = r;
       const dragged = dragging && item.queueIndex === dragging.from;
       drawButtonFrame(ctx, r, {
-        hot: item.id === hovered && !item.disabled && !dragging,
+        hot: item.id === hovered && !item.disabled && !item.info && !dragging,
         disabled: item.disabled,
+        info: item.info,
         current: item.current,
         color: item.color,
         dim: item.dim,
@@ -487,7 +490,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     if (open && (py < clipTop || py > clipBottom)) return null;
     if (open) py += scrolled;
     const r = rects.find(inside);
-    return r && !r.item?.disabled && !r.option?.disabled ? r.id : null;
+    return r && !r.item?.disabled && !r.item?.info && !r.option?.disabled ? r.id : null;
   };
   useGazeTarget(mesh, onSelect, setGazeKey, pick);
 

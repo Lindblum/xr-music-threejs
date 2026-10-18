@@ -7,7 +7,7 @@ import { FRETS, Fretboard } from './Fretboard.jsx';
 import { GazePlay, TouchPlay } from './Touch.jsx';
 import { useControllerGrips } from './Grab.jsx';
 import { Pick } from './Pick.jsx';
-import { CHORD_FRAME_OFFSET, ChordFrame, FilterFrame, TOOL_FRAME_OFFSET, ToolFrame, filterFrameOffsetY } from './SideFrames.jsx';
+import { ChordFrame, FilterFrame, ToolFrame, chordFrameOffset, filterFrameOffsetY, toolFrameOffset } from './SideFrames.jsx';
 import { XRMenuPanel } from './XRMenuPanel.jsx';
 import { SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
@@ -20,13 +20,17 @@ import { allNotesOff, noteOff, noteOn, setBend } from './audio.js';
 // The Fretboard's centre: a metre above the floor and half a metre in front
 // of the player, as in the old page.
 const BOARD_POSITION = [0, 1, -0.5];
-// The Fretboard, the ChordFrame and the ToolFrame start at half their size; a grip in each hand scales them.
+// The Fretboard and the side frames start at half their size; a grip in each hand scales them.
 const START_SCALE = 0.5;
 // The ChordFrame and ToolFrame start either side of it, each its own handle (see SideFrames.jsx).
-const CHORD_FRAME_POSITION = [BOARD_POSITION[0] + CHORD_FRAME_OFFSET * START_SCALE, BOARD_POSITION[1], BOARD_POSITION[2]];
-const TOOL_FRAME_POSITION = [BOARD_POSITION[0] + TOOL_FRAME_OFFSET * START_SCALE, BOARD_POSITION[1], BOARD_POSITION[2]];
-// The FilterFrame starts full size, centred below it, clear of its frame for however many strings it has.
-const filterFramePosition = (strings) => [BOARD_POSITION[0], BOARD_POSITION[1] + filterFrameOffsetY(strings, START_SCALE), BOARD_POSITION[2]];
+const CHORD_FRAME_POSITION = [BOARD_POSITION[0] + chordFrameOffset(START_SCALE), BOARD_POSITION[1], BOARD_POSITION[2]];
+const TOOL_FRAME_POSITION = [BOARD_POSITION[0] + toolFrameOffset(START_SCALE), BOARD_POSITION[1], BOARD_POSITION[2]];
+// The FilterFrame starts centred below it, clear of its frame for however many strings it has.
+const filterFramePosition = (strings) => [
+  BOARD_POSITION[0],
+  BOARD_POSITION[1] + filterFrameOffsetY(strings, START_SCALE, START_SCALE),
+  BOARD_POSITION[2],
+];
 // The windowed view looks a little left of centre, so the board clears the panel.
 export const ORBIT_TARGET = [-0.5, 1, -0.5];
 // Without VR controllers (hand tracking, phones) the XR panel starts off to
@@ -317,7 +321,7 @@ export default function Scene({
       [board.current, BOARD_POSITION, START_SCALE],
       [chordFrame.current, CHORD_FRAME_POSITION, START_SCALE],
       [toolFrame.current, TOOL_FRAME_POSITION, START_SCALE],
-      [filterFrame.current, filterFramePosition(strings), 1],
+      [filterFrame.current, filterFramePosition(strings), START_SCALE],
     ]) {
       if (!object) continue;
       object.position.fromArray(position);
@@ -405,6 +409,7 @@ export default function Scene({
       <FilterFrame
         groupRef={filterFrame}
         position={filterFrameStart}
+        scale={START_SCALE}
         effects={state.effects}
         amounts={effectAmounts}
         onSlide={onEffectSlide}

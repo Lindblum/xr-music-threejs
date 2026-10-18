@@ -170,7 +170,7 @@ function carryByHands(object, holding, state) {
  * to where it was let go, and FREE_SCALE in size whatever the Fretboard's scale.
  */
 function frameDockOffset(board, strings, panel) {
-  const { outerX, outerY } = frameSize(strings);
+  const { outerX, outerY } = frameSize(strings, board.scale.x);
   const { left, right, top, bottom } = panel.userData.bounds;
   const s = FREE_SCALE / board.scale.x;
   const gap = DOCK_GAP / board.scale.x;
@@ -341,7 +341,7 @@ export function useControllerGrips({
       }
       for (const target of FRAMES) {
         const moulding = objects[target]?.getObjectByName(MOULDINGS[target]);
-        const [hit] = moulding ? raycaster.intersectObject(moulding, false) : [];
+        const [hit] = moulding ? raycaster.intersectObject(moulding, true) : [];
         if (hit) candidates.push({ target, hit });
       }
       return candidates.sort((a, b) => a.hit.distance - b.hit.distance)[0] ?? null;

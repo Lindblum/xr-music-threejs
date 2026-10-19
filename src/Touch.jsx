@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FRETS, touchedCells, touchedCellsByPoints, touchesFrame } from './Fretboard.jsx';
-import { PICK_DOCK_POSITION, pickPoints } from './Pick.jsx';
+import { PICK_COLOR, pickPoints } from './Pick.jsx';
 import { chordOfNode, touchedChordNode } from './SideFrames.jsx';
 
 // Playing the Fretboard in XR, as in three.js's haptics demo: each
-// controller's collision sphere (2 cm, orange, in front of it where a pick
-// docks; see controllerTip) or each hand's index fingertip is a small mallet.
+// controller's collision sphere (2 cm, the picks' orange, just in front of
+// it; see controllerTip) or each hand's index fingertip is a small mallet.
+// Controllers and fingertips play the instrument chosen in the menu; picks
+// each play their own (see Scene.jsx).
 // Touching a cube strikes its note (every cube it touches, if it's between
 // them); a controller kicks as it enters a cube and hums softly while it
 // stays inside. Notes outside the scale only sound while the controller's
@@ -23,7 +25,7 @@ import { chordOfNode, touchedChordNode } from './SideFrames.jsx';
 const HANDS = ['left', 'right'];
 export const RADIUS = 0.02; // a fingertip mallet's radius, metres
 export const CONTROLLER_RADIUS = 0.01; // a controller's collision sphere's: 2 cm across
-const SPHERE_COLOR = '#ff8a1f';
+const CONTROLLER_TIP = new THREE.Vector3(0, 0, -0.05); // the sphere's centre, in target-ray space: 5 cm out in front
 const STRIKE = [0.8, 40]; // haptic pulse [strength, ms] on entering a cube
 const HUM = [0.2, 60]; // ...and while inside it
 const FRAME_TAP = [0.4, 30]; // on touching the frame
@@ -35,11 +37,8 @@ const FULL_SPEED = 1.5; // metres per second: a mallet this fast strikes at full
 const _pose = new THREE.Matrix4();
 const _pickCentre = new THREE.Vector3();
 
-/**
- * A controller's collision sphere's centre, into `out`, from its target-ray
- * pose (world): in front of it, where a docked pick's centre sits.
- */
-export const controllerTip = (rayMatrix, out) => out.copy(PICK_DOCK_POSITION).applyMatrix4(rayMatrix);
+/** A controller's collision sphere's centre, into `out`, from its target-ray pose (world): CONTROLLER_TIP in front of it. */
+export const controllerTip = (rayMatrix, out) => out.copy(CONTROLLER_TIP).applyMatrix4(rayMatrix);
 
 /** Each hand's mallet in world space: { position, radius, gamepad?, controller, trigger }, read straight from the XR frame. */
 function readMallets(frame, referenceSpace, origin) {
@@ -198,7 +197,7 @@ export function TouchPlay({ board, chordFrame, picks, origin, cells, touch, hand
   return HANDS.map((hand) => (
     <mesh key={hand} ref={(b) => (balls.current[hand] = b)} visible={false} raycast={() => null}>
       <sphereGeometry args={[CONTROLLER_RADIUS, 16, 12]} />
-      <meshStandardMaterial color={SPHERE_COLOR} emissive={SPHERE_COLOR} emissiveIntensity={0.35} roughness={0.4} />
+      <meshStandardMaterial color={PICK_COLOR} roughness={0.3} />
     </mesh>
   ));
 }

@@ -452,23 +452,36 @@ const ANALYSIS_COLUMNS = 4;
 const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 
 /**
- * The Analyze section: Record / Stop for the microphone, then what was heard
- * (`state.analysis`: { status: 'idle' | 'recording' | 'analyzing' | 'done' |
- * 'error', seconds, result, error }, see analyze.js), shown as `info` rows,
- * the chords one a measure, four to a row in a framed group, and Apply to
- * Progression.
+ * The Analyze section: Record / Stop for the microphone and Analyze for what
+ * was recorded, side by side, then what was heard (`state.analysis`: {
+ * status: 'idle' | 'recording' | 'recorded' | 'analyzing' | 'done' | 'error',
+ * seconds, recordedSeconds, result, error }, see analyze.js), shown as `info`
+ * rows, the chords one a measure, four to a row in a framed group, and Apply
+ * to Progression.
  */
 function analyzeItems(state) {
-  const { status = 'idle', seconds = 0, result, error } = state.analysis ?? {};
+  const { status = 'idle', seconds = 0, recordedSeconds, result, error } = state.analysis ?? {};
   const recording = status === 'recording';
+  const analyzing = status === 'analyzing';
+  const buttons = { row: 'analysis-buttons', small: true };
   const items = [
     {
       id: 'record',
-      label: recording ? `Stop: ${clock(seconds)}` : status === 'analyzing' ? 'Analyzing…' : 'Record',
+      label: recording ? `Stop: ${clock(seconds)}` : 'Record',
       sizeLabel: 'Stop: 0:00',
       icon: recording ? 'stop' : 'record',
-      disabled: status === 'analyzing',
-      title: 'Records from the microphone (up to a minute); Stop works out its tempo, meter, key, scale and chords',
+      disabled: analyzing,
+      title: 'Records from the microphone, up to a minute (a new recording replaces the last)',
+      ...buttons,
+    },
+    {
+      id: 'analyze',
+      label: analyzing ? 'Analyzing…' : recordedSeconds != null ? `Analyze: ${clock(recordedSeconds)}` : 'Analyze',
+      sizeLabel: 'Analyze: 0:00',
+      icon: 'analyze',
+      disabled: recording || analyzing || recordedSeconds == null,
+      title: 'Works out the recording\'s tempo, meter, key, scale and chords',
+      ...buttons,
     },
   ];
   if (status === 'error') items.push({ id: 'analysis-error', label: error, info: true });
@@ -601,7 +614,8 @@ export function possibleLabels(env) {
     ...STOCK_PROGRESSIONS.map((stock) => ({ progression: stockChords(stock, 0) })),
     // Analyze: recording, and the longest results it can show
     { analysis: { status: 'recording', seconds: 59 } },
-    { analysis: { status: 'analyzing' } },
+    { analysis: { status: 'recorded', recordedSeconds: 59 } },
+    { analysis: { status: 'analyzing', recordedSeconds: 59 } },
     ...SCALES.map((scale) => ({
       analysis: { status: 'done', result: { bpm: 200, beatsPerMeasure: 7, key: 1, scale: scale.id, chords: Array(4).fill(longest) } },
     })),

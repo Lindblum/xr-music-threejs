@@ -199,14 +199,15 @@ function Player({ origin, onExitXR, children, ...grips }) {
  * every voice that has sounded that cube, ringing or held, and any that
  * strikes it while it's bent. With `velocitySensitive`, a struck note is as
  * loud as its velocity (0..1, passed to touch and press); otherwise full.
+ * Each source plays `instrumentOf(source)`, or `instrument` if that says nothing.
  * Returns [touches, touch, press, bend].
  */
-function useTouches(cells, instrument, velocitySensitive) {
+function useTouches(cells, instrument, velocitySensitive, instrumentOf) {
   const touches = useRef(new Map());
   const voicesOf = useRef(new Map()); // cell index -> the voices that have sounded it, for bending
   const bends = useRef(new Map()); // cell index -> semitones it is bent by
-  const latest = useRef({ cells, instrument, velocitySensitive });
-  latest.current = { cells, instrument, velocitySensitive };
+  const latest = useRef({ cells, instrument, velocitySensitive, instrumentOf });
+  latest.current = { cells, instrument, velocitySensitive, instrumentOf };
 
   // a new board or instrument: let go of everything; still-touching hands strike again
   useEffect(() => {
@@ -232,7 +233,8 @@ function useTouches(cells, instrument, velocitySensitive) {
       if (!voicesOf.current.has(index)) voicesOf.current.set(index, new Set());
       voicesOf.current.get(index).add(voice);
       setBend(voice, bends.current.get(index) ?? 0);
-      noteOn(voice, cell.note, latest.current.instrument, latest.current.velocitySensitive ? velocity : 1);
+      const sound = latest.current.instrumentOf?.(source) ?? latest.current.instrument;
+      noteOn(voice, cell.note, sound, latest.current.velocitySensitive ? velocity : 1);
       struck = true;
     }
     return struck;
@@ -289,25 +291,50 @@ export default function Scene({
   const toolFrame = useRef(null);
   const filterFrame = useRef(null);
   const menuDock = useRef({ to: null, placed: false }); // where the panel is docked: see Grab.jsx
-  // the picks: id -> { object, dock }, where each is docked (see Grab.jsx); ids, to draw them
-  const picks = useRef(new Map([[0, { object: null, dock: firstPickDock() }]]));
+  // the picks: id -> { object, dock, instrument }, where each is docked (see Grab.jsx) and what it plays;
+  // and [{ id, instrument }], to draw them
+  const currentInstrument = useRef(state.instrument);
+  currentInstrument.current = state.instrument;
+  const picks = useRef(new Map([[0, { object: null, dock: firstPickDock(), instrument: state.instrument }]]));
   const nextPickId = useRef(1);
-  const [pickIds, setPickIds] = useState([0]);
-  const spawnPick = useCallback((hand) => {
-    const id = nextPickId.current++;
-    picks.current.set(id, { object: null, dock: { to: hand, placed: true, scale: 1 } });
-    setPickIds((ids) => [...ids, id]);
-  }, []);
-  const removePick = useCallback((id) => {
-    picks.current.delete(id);
-    setPickIds((ids) => ids.filter((i) => i !== id));
-  }, []);
+  const [pickList, setPickList] = useState(() => [{ id: 0, instrument: state.instrument }]);
+  const listPicks = useCallback(() => setPickList([...picks.current].map(([id, p]) => ({ id, instrument: p.instrument }))), []);
+  // a new pick from the toolbox plays the instrument chosen now
+  const spawnPick = useCallback(
+    (hand) => {
+      const id = nextPickId.current++;
+      picks.current.set(id, { object: null, dock: { to: hand, placed: true, scale: 1 }, instrument: currentInstrument.current });
+      listPicks();
+    },
+    [listPicks],
+  );
+  const removePick = useCallback(
+    (id) => {
+      picks.current.delete(id);
+      listPicks();
+    },
+    [listPicks],
+  );
   // hands on the frames, and touching and holding the picks: see Touch.jsx and Grab.jsx
   const handles = useRef({ touching: {}, holding: {}, frames: {}, picks: {} });
   const strings = cells.length / FRETS;
   // where the FilterFrame first appears: fixed, so a new tuning never moves it out from under a hand
   const [filterFrameStart] = useState(() => filterFramePosition(strings));
-  const [touches, touch, press, bend] = useTouches(cells, state.instrument, state.velocity);
+  // a pick plays its own instrument; everything else (controllers, fingertips, the mouse, gaze) the one chosen
+  const instrumentOf = useCallback((source) => (source.startsWith('pick:') ? picks.current.get(Number(source.slice(5)))?.instrument : null), []);
+  const [touches, touch, press, bend] = useTouches(cells, state.instrument, state.velocity, instrumentOf);
+  // choosing an instrument gives it to the picks in hand (docked on a controller, or held), as well as the controllers
+  useEffect(() => {
+    let changed = false;
+    for (const [id, p] of picks.current) {
+      const { holding = {} } = handles.current.picks?.[id] ?? {};
+      const inHand = p.dock.to === 'left' || p.dock.to === 'right' || Object.values(holding).some(Boolean);
+      if (!inHand || p.instrument === state.instrument) continue;
+      p.instrument = state.instrument;
+      changed = true;
+    }
+    if (changed) listPicks();
+  }, [state.instrument, listPicks]);
   const hoverMouse = useCallback((index, velocity) => press('mouse', index, velocity), [press]);
 
   useEffect(() => {
@@ -339,8 +366,8 @@ export default function Scene({
     if (!inSession || (!hasControllers && docked)) {
       const [first] = picks.current.keys();
       const object = picks.current.get(first)?.object ?? null;
-      picks.current = new Map([[first, { object, dock: firstPickDock() }]]);
-      setPickIds([first]);
+      picks.current = new Map([[first, { object, dock: firstPickDock(), instrument: currentInstrument.current }]]);
+      listPicks();
       if (inSession && object) {
         object.position.fromArray(PICK_POSITION);
         object.rotation.fromArray(PICK_ROTATION);
@@ -417,14 +444,15 @@ export default function Scene({
         handles={handles}
         hoverEnabled={!immersive}
       />
-      {/* picks only dock on controllers */}
+      {/* picks dock on controllers (and the mouth) */}
       {inSession && !phone && <ToolFrame groupRef={toolFrame} position={TOOL_FRAME_POSITION} scale={START_SCALE} handles={handles} />}
       {inSession &&
         !phone &&
-        pickIds.map((id) => (
+        pickList.map(({ id, instrument }) => (
           <Pick
             key={id}
             id={id}
+            instrument={instrument}
             pickRef={(object) => {
               const p = picks.current.get(id);
               if (p) p.object = object;

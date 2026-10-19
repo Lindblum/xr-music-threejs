@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { iconSvg } from './Icon.jsx';
+import { instrumentIcon } from './menu.js';
 
 // Picks: 10 cm guitar picks for XR: Headset, as many as are taken from the
 // ToolFrame (see SideFrames.jsx). The first starts docked on the right
 // controller, pointing forward from it; a grip on one from the other hand
 // takes it, both grips scale and turn it, as with the Fretboard, and let go
 // near a controller it docks there (see Grab.jsx). Every part of a pick
-// strikes notes, as a controller's tip does (see Touch.jsx). In pick space it
-// lies in the XY plane, face toward +Z, tip pointing down -Y.
+// strikes notes, as a controller's tip does (see Touch.jsx), in its own
+// instrument (a synth or a sample), whose icon and name it wears on both
+// faces. Let go by the mouth, a pick docks there, held flat in front of it
+// as if in the teeth. In pick space it lies in the XY plane, face toward +Z,
+// tip pointing down -Y.
 
 // The outline: a rounded equilateral triangle, the convex hull of three circles of the same radius, one at each corner
 const CORNER = 0.015;
@@ -128,11 +133,55 @@ export const PICK_DOCK_ROTATION = new THREE.Quaternion().setFromRotationMatrix(
 );
 
 /**
- * Pick `id`, in `pickRef`. `handles.current.picks[id]` is { touching,
- * holding } (hand -> true), which light it up like the neck frame, and
- * `docked` (the hand it's on, or null).
+ * Docked at the mouth, in head (camera) space (-Z forward, +Y up): lying flat,
+ * tip forward, its centre a little below and in front of the eyes, where the
+ * mouth is.
  */
-export function Pick({ id, pickRef, handles, ...props }) {
+export const PICK_MOUTH_POSITION = new THREE.Vector3(0, -0.08, -0.08);
+export const PICK_MOUTH_ROTATION = new THREE.Quaternion().setFromRotationMatrix(
+  // pick +X right, +Y back (the tip, -Y, forward), its face (+Z) down
+  new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, -1, 0)),
+);
+
+const LABEL_SIZE = [0.05, 0.031]; // metres: the instrument's icon over its name, on each face
+const LABEL_Y = 0.004; // up from the centre, where the triangle is widest
+const LABEL_INK = '#2a1206';
+
+/** An instrument's icon over its name, on a transparent canvas, for a pick's faces. Shared by picks with the same one. */
+const labelTextures = new Map();
+function labelTexture(instrument) {
+  if (!labelTextures.has(instrument)) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 160;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = LABEL_INK;
+    ctx.font = `600 ${instrument.length > 10 ? 34 : 42}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(instrument, 128, 122, 244);
+    // the icon comes as an image: drawn once it loads
+    const icon = new Image();
+    icon.onload = () => {
+      ctx.drawImage(icon, 128 - 36, 8, 72, 72);
+      texture.needsUpdate = true;
+    };
+    icon.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(iconSvg(instrumentIcon(instrument), LABEL_INK))}`;
+    labelTextures.set(instrument, texture);
+  }
+  return labelTextures.get(instrument);
+}
+
+/**
+ * Pick `id`, in `pickRef`, playing `instrument` and wearing its name.
+ * `handles.current.picks[id]` is { touching, holding } (hand -> true), which
+ * light it up like the neck frame, and `docked` (the hand it's on, 'mouth',
+ * or null).
+ */
+export function Pick({ id, instrument, pickRef, handles, ...props }) {
   const geometry = useMemo(pickGeometry, []);
   useEffect(() => () => geometry.dispose(), [geometry]);
   const material = useRef(null);
@@ -145,6 +194,13 @@ export function Pick({ id, pickRef, handles, ...props }) {
   return (
     <mesh ref={pickRef} name="Pick" geometry={geometry} raycast={() => null} {...props}>
       <meshPhysicalMaterial ref={material} color={PICK_COLOR} roughness={0.3} clearcoat={1} clearcoatRoughness={0.15} />
+      {/* its instrument on both faces, just proud of them */}
+      {[1, -1].map((side) => (
+        <mesh key={side} position={[0, LABEL_Y, side * (THICKNESS / 2 + 0.0004)]} rotation-y={side > 0 ? 0 : Math.PI} raycast={() => null}>
+          <planeGeometry args={LABEL_SIZE} />
+          <meshBasicMaterial map={labelTexture(instrument)} transparent depthWrite={false} toneMapped={false} />
+        </mesh>
+      ))}
     </mesh>
   );
 }

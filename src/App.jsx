@@ -666,39 +666,50 @@ export default function App() {
   const [handheld, setHandheld] = useState(false); // the motion-sensor view is showing (phones without AR)
   const holding = useRef(false); // a finger held on the motion-sensor view's screen
   const menuPressed = useRef(false); // a finger on the screen's menu (see ScreenMenu)
-  // Analyze: { status: 'idle' | 'recording' | 'analyzing' | 'done' | 'error', seconds, result, error } (see menu.js)
+  // Analyze: { status: 'idle' | 'recording' | 'recorded' | 'analyzing' | 'done' | 'error', seconds (while recording),
+  // recordedSeconds (the recording kept), result, error } (see menu.js); the recording itself, kept for Analyze
   const [analysis, setAnalysis] = useState({ status: 'idle' });
+  const recorded = useRef(null);
   const recordingSince = useRef(0);
   useEffect(() => {
     if (analysis.status !== 'recording') return;
     const tick = setInterval(() => setAnalysis((a) => ({ ...a, seconds: (performance.now() - recordingSince.current) / 1000 })), 250);
     return () => clearInterval(tick);
   }, [analysis.status]);
-  /** Stop: what was recorded analysed, once "Analyzing…" has had a frame to show. */
+  /** Stop: the recording kept, for Analyze. */
   const finishRecording = () => {
-    const recorded = stopRecording();
-    if (!recorded) return;
-    setAnalysis({ status: 'analyzing' });
-    setTimeout(() => {
-      const result = analyze(recorded.samples, recorded.sampleRate);
-      setAnalysis(result.error ? { status: 'error', error: result.error } : { status: 'done', result });
-    }, 50);
+    const take = stopRecording();
+    if (!take) return;
+    recorded.current = take;
+    setAnalysis({ status: 'recorded', recordedSeconds: take.samples.length / take.sampleRate });
   };
   const finishLatest = useRef(finishRecording);
   finishLatest.current = finishRecording;
-  /** Record / Stop. */
+  /** Record / Stop. A new recording replaces the last, and what was found in it. */
   const toggleRecording = async () => {
     if (analysis.status === 'recording') return finishRecording();
     if (analysis.status === 'analyzing') return;
     try {
       await startRecording({ onLimit: () => finishLatest.current() });
+      recorded.current = null;
       recordingSince.current = performance.now();
       setAnalysis({ status: 'recording', seconds: 0 });
     } catch (e) {
       // inside a headset's session the browser may not be able to ask
       const error = sessionActive && /refused/.test(e.message) ? 'Allow the microphone outside XR first' : e.message;
-      setAnalysis({ status: 'error', error });
+      setAnalysis((a) => ({ status: 'error', error, recordedSeconds: a.recordedSeconds }));
     }
+  };
+  /** Analyze: the kept recording worked out, once "Analyzing…" has had a frame to show. */
+  const analyzeRecording = () => {
+    const take = recorded.current;
+    if (!take || analysis.status === 'recording' || analysis.status === 'analyzing') return;
+    const recordedSeconds = take.samples.length / take.sampleRate;
+    setAnalysis({ status: 'analyzing', recordedSeconds });
+    setTimeout(() => {
+      const result = analyze(take.samples, take.sampleRate);
+      setAnalysis(result.error ? { status: 'error', error: result.error, recordedSeconds } : { status: 'done', result, recordedSeconds });
+    }, 50);
   };
   const inXR = sessionActive || handheld;
   // derived from the session, so the panel can never disagree with what is showing
@@ -781,6 +792,7 @@ export default function App() {
     }
     else if (id === 'stop') player.stop();
     else if (id === 'record') toggleRecording();
+    else if (id === 'analyze') analyzeRecording();
     else if (id === 'applyAnalysis' && analysis.result) {
       player.stop();
       actions.applyAnalysis(analysis.result);

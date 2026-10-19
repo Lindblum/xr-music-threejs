@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { applyTwoHands, readControllers } from './grip.js';
 import { SPACING, frameSize, nearFrame, touchedCells, touchedCellsByPoints, touchesFrame } from './Fretboard.jsx';
 import { CONTROLLER_RADIUS, controllerTip, pulse } from './Touch.jsx';
-import { PICK_DOCK_POSITION, PICK_DOCK_ROTATION, pickPoints, touchesPick } from './Pick.jsx';
+import { PICK_DOCK_POSITION, PICK_DOCK_ROTATION, PICK_MOUTH_POSITION, PICK_MOUTH_ROTATION, pickPoints, touchesPick } from './Pick.jsx';
 import { chordOfNode, effectControls, knobAmountAt, touchesEffectKnob, touchesEffectSwitch, touchesSideFrame } from './SideFrames.jsx';
 import { playClick } from './audio.js';
 
@@ -18,8 +18,9 @@ import { playClick } from './audio.js';
 //
 // Picks dock on controllers the same way: a grip from the other hand takes
 // one off (with a click), and let go near a controller with no pick on it,
-// it docks there, pointing forward from it; let go on the ToolFrame's pick,
-// it goes back in the toolbox. The first pick starts on the right
+// it docks there, pointing forward from it; let go by the mouth, it docks
+// there, flat in front of it (and goes where the head goes); let go on the
+// ToolFrame's pick, it goes back in the toolbox. The first pick starts on the right
 // controller, the panel on the left. A double tap of a grip docks the panel,
 // or a pick, on that controller, if it's touching it or pointing at it (off
 // the other controller, if it was there; a pick already docked here is let
@@ -43,7 +44,7 @@ import { playClick } from './audio.js';
 // see what it'll take); something touched comes first.
 //
 // A controller touches things with its collision sphere (its "tip": see
-// controllerTip in Touch.jsx), 2 cm across, in front of it where a pick docks.
+// controllerTip in Touch.jsx), 2 cm across, just in front of it.
 // A grip pressed with the controller's sphere on a pick, or on a frame's
 // moulding (the NeckFrame, the ChordFrame, the ToolFrame or the FilterFrame), takes hold of
 // it: with one hand it follows that hand rigidly, moving and turning with
@@ -65,6 +66,7 @@ const BEND_PULSE = [0.5, 30]; // on taking hold of a note
 const BEND_TICK = [0.3, 15]; // at each whole semitone of bend
 const KNOB_TICKS = 10; // a FilterFrame knob ticks this many times end to end
 const PICK_DOCK_REACH = 0.15; // metres from the held pick's centre to the other controller, to dock there
+const MOUTH_REACH = 0.12; // ...or to where it would sit at the mouth, to dock there
 const TOOLBOX_REACH = 0.08; // ...or to the ToolFrame's pick, to go back in the toolbox
 const GRAB_PULSE = [0.6, 50]; // haptic [strength, ms] on taking hold of a frame
 const DETACH_PULSE = [0.4, 30]; // on taking the panel off a dock
@@ -94,6 +96,7 @@ const _tip = new THREE.Vector3();
 const _local = new THREE.Vector3();
 const _centre = new THREE.Vector3();
 const _toolCentre = new THREE.Vector3();
+const _mouth = new THREE.Vector3();
 const _scale = new THREE.Vector3();
 const _world = new THREE.Matrix4();
 const _parentInverse = new THREE.Matrix4();
@@ -194,7 +197,7 @@ function frameDockOffset(board, strings, panel) {
  * XROrigin the controllers are tracked relative to) are refs; `strings` is
  * the Fretboard's row count, for the NeckFrame's size. `picks.current` is a
  * Map of id -> { object, dock }, where `dock` is { to: 'left' | 'right' |
- * null, placed, scale }; picks must be direct children of the
+ * 'mouth' | null, placed, scale }; picks must be direct children of the
  * scene. `spawnPick(hand)` adds a pick docked on that hand, `removePick(id)`
  * takes one away, and `onChord(chord)` selects a chord. `effectAmounts.current`
  * is the FilterFrame's sliders (effect id -> 0..1), which its knobs set with
@@ -232,6 +235,7 @@ export function useControllerGrips({
   handles,
 }) {
   const gl = useThree((s) => s.gl);
+  const camera = useThree((s) => s.camera); // the head, for a pick docked at the mouth
   // hand -> { target: a frame | 'none' } | { target: 'pick', id, zone } | { target: 'knob', effect, from, start, step } | { target: 'menu', ... } | { target: 'note', ... }
   const grabs = useRef({});
   // per carried thing (a frame, or 'pick:<id>'): { oneHand: { hand, offset } while a single hand carries it, last: the holding hands' positions last frame }
@@ -516,7 +520,7 @@ export function useControllerGrips({
             const p = pickById.get(grab.id);
             p.dock.to = grab.zone;
             p.dock.scale = _scale.setFromMatrixScale(p.object.matrixWorld).x;
-            pulse(controllers[grab.zone].gamepad, DOCK_PULSE);
+            pulse(controllers[grab.zone]?.gamepad ?? c.gamepad, DOCK_PULSE);
             playClick('attach');
           }
         }
@@ -648,8 +652,10 @@ export function useControllerGrips({
     for (const p of pickList) carryByHands(p.object, pickHolding[p.id] ?? {}, carryState(`pick:${p.id}`));
 
     if (toolPick) toolPick.getWorldPosition(_toolCentre);
+    _mouth.copy(PICK_MOUTH_POSITION).applyMatrix4(camera.matrixWorld);
     for (const p of pickList) {
-      // held in one hand, a pick can dock on the other controller, if that has none, or go back in the toolbox: a tick as it comes within reach
+      // held in one hand, a pick can dock on the other controller, if that has none, or at the mouth, or go back in the
+      // toolbox: a tick as it comes within reach
       const pickHands = Object.keys(pickHolding[p.id] ?? {});
       for (const hand of pickHands) {
         const grab = grabs.current[hand];
@@ -659,14 +665,17 @@ export function useControllerGrips({
           _centre.setFromMatrixPosition(p.object.matrixWorld);
           const other = hand === 'left' ? 'right' : 'left';
           if (controllers[other]?.position.distanceTo(_centre) < PICK_DOCK_REACH && !dockedOn(other)) zone = other;
+          else if (_mouth.distanceTo(_centre) < MOUTH_REACH && !pickList.some((q) => q !== p && q.dock.to === 'mouth')) zone = 'mouth';
           else if (toolPick && _toolCentre.distanceTo(_centre) < TOOLBOX_REACH) zone = 'toolbox';
         }
-        if (zone && zone !== grab.zone) pulse(zone === 'toolbox' ? controllers[hand].gamepad : controllers[zone].gamepad, ZONE_TICK);
+        if (zone && zone !== grab.zone) pulse((controllers[zone] ?? controllers[hand]).gamepad, ZONE_TICK);
         grab.zone = zone;
       }
-      // docked, it follows its controller, pointing forward; on an untracked controller it hides
+      // docked, it follows its controller, pointing forward (on an untracked controller it hides), or the head
       p.object.visible = true;
-      if (p.dock.to) {
+      if (p.dock.to === 'mouth') {
+        carry(p.object, camera.matrixWorld, _offset.compose(PICK_MOUTH_POSITION, PICK_MOUTH_ROTATION, _scale.setScalar(p.dock.scale ?? 1)));
+      } else if (p.dock.to) {
         const c = controllers[p.dock.to];
         p.object.visible = Boolean(c);
         if (c) carry(p.object, c.rayMatrix, _offset.compose(PICK_DOCK_POSITION, PICK_DOCK_ROTATION, _scale.setScalar(p.dock.scale ?? 1)));

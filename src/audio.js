@@ -44,10 +44,8 @@ export const INSTRUMENTS = [
   'Viola',
   'Strings',
   'Xylophone',
-  'Guitar',
   'Classical Guitar',
   'Nylon Guitar',
-  'Heavy Guitar',
   'Bass Guitar',
 ];
 
@@ -95,12 +93,15 @@ const TREMOLO_PER_BEAT = 2; // pulses a beat, at the progression's tempo
 const VOLUME_TOP = 1.6; // the volume's gain at the slider's top: its default, 0.8, is about unity
 const REVERB_SECONDS = 2.5;
 const COMP_MAKEUP = 12; // dB the compressor makes up at the slider's top
+const SWELL_TIME = [0.03, 1.5]; // seconds a note takes to fade in, slider at 0 and at 1
 
 /**
  * The effects, in signal-chain order: each one's id, name, whether it can be
- * switched out (`toggle`), and its slider's starting place (0..1).
+ * switched out (`toggle`), and its slider's starting place (0..1). The swell
+ * is no stage in the chain: each note fades in by itself (see swellIn).
  */
 export const EFFECTS = [
+  { id: 'swell', name: 'Swell', toggle: true, amount: 0.5 },
   { id: 'comp', name: 'Comp', toggle: true, amount: 0.5 },
   { id: 'octave', name: 'Octave', toggle: true, amount: 0.6 },
   { id: 'autoWah', name: 'Auto-Wah', toggle: true, amount: 0.5 },
@@ -376,6 +377,7 @@ const BUILDERS = {
  * gain.
  */
 function buildStage(id, input) {
+  if (id === 'swell') return input;
   const out = ctx.createGain();
   if (id === 'volume') {
     out.gain.value = VOLUME_TOP * effectAmount.volume ** 2;
@@ -408,7 +410,7 @@ export function setEffectOn(id, on) {
 }
 
 /**
- * Sets effect `id`'s slider (0..1): the compressor's squeeze; the octave's
+ * Sets effect `id`'s slider (0..1): how slowly a note swells in; the compressor's squeeze; the octave's
  * level; the auto-wah's sensitivity; the wah's pedal, heel to toe; the
  * drives; the tone's brightness; the chorus's, flanger's, vibrato's and
  * tremolo's depth; the phaser's speed; the volume; the echo's and reverb's mix.
@@ -483,14 +485,39 @@ export function loadInstrument(name) {
 
 const bendRatio = (voice) => 2 ** ((bends.get(voice) ?? 0) / 12);
 
+/**
+ * A note's gain reaching `level` from time `at`: at once, or with the swell
+ * in, faded in from silence over the slider's time, slowly at first, as a
+ * volume pedal rolled up.
+ */
+function swellIn(param, level, at) {
+  if (!effectOn.swell) {
+    param.setValueAtTime(level, at);
+    return;
+  }
+  const time = sweep(SWELL_TIME, effectAmount.swell);
+  param.cancelScheduledValues(at);
+  param.setValueAtTime(0, at);
+  param.linearRampToValueAtTime(level / 4, at + time / 2);
+  param.linearRampToValueAtTime(level, at + time);
+}
+
+/** Stops a gain's scheduled changes from `t`, keeping its value then (where the browser can), for a release mid-swell. */
+function holdAt(param, t) {
+  if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(t);
+  else param.cancelScheduledValues(t);
+}
+
 function playSample(voice, sample, note, at, loudness = 1) {
   const c = context();
   const source = c.createBufferSource();
   source.buffer = sample.buffer;
   const rate = 2 ** ((note - (sample.note ?? 0)) / 12);
   source.playbackRate.value = rate * bendRatio(voice);
+  // `at`: when it should sound, in performance.now() seconds
+  const when = c.currentTime + Math.max(0, at - performance.now() / 1000);
   const gain = c.createGain();
-  gain.gain.value = sample.gain * loudness;
+  swellIn(gain.gain, sample.gain * loudness, when);
   source.connect(gain);
   gain.connect(bus);
   // with the octave in, the same sample at half the rate, an octave down
@@ -500,7 +527,7 @@ function playSample(voice, sample, note, at, loudness = 1) {
     sub.buffer = sample.buffer;
     sub.playbackRate.value = (rate / 2) * bendRatio(voice);
     const subGain = c.createGain();
-    subGain.gain.value = sample.gain * loudness;
+    swellIn(subGain.gain, sample.gain * loudness, when);
     sub.connect(subGain).connect(octaveBus);
     sub.onended = () => {
       const i = sources.indexOf(sub);
@@ -515,8 +542,6 @@ function playSample(voice, sample, note, at, loudness = 1) {
     if (ringing.get(voice)?.source === source) ringing.delete(voice);
     gain.disconnect();
   };
-  // `at`: when it should sound, in performance.now() seconds
-  const when = c.currentTime + Math.max(0, at - performance.now() / 1000);
   for (const s of [source, sub]) {
     if (!s) continue;
     s.start(when);
@@ -569,8 +594,14 @@ export function noteOn(voice, note, instrument, velocity = 1) {
     v.osc.frequency.setTargetAtTime(noteToFrequency(note), start, 0.005);
     v.sub.frequency.setTargetAtTime(noteToFrequency(note - 12), start, 0.005);
     for (const osc of [v.osc, v.sub]) osc.detune.setValueAtTime((bends.get(voice) ?? 0) * 100, start);
-    v.gain.gain.setTargetAtTime(level * loudness, start, 0.01);
-    v.subGain.gain.setTargetAtTime(effectOn.octave ? level * loudness : 0, start, 0.01);
+    if (effectOn.swell) {
+      // each note it moves onto swells in afresh
+      swellIn(v.gain.gain, level * loudness, start);
+      swellIn(v.subGain.gain, effectOn.octave ? level * loudness : 0, start);
+    } else {
+      v.gain.gain.setTargetAtTime(level * loudness, start, 0.01);
+      v.subGain.gain.setTargetAtTime(effectOn.octave ? level * loudness : 0, start, 0.01);
+    }
     return;
   }
   const at = performance.now() / 1000 + wait;
@@ -592,7 +623,7 @@ export function noteOff(voice) {
     [v.osc, v.gain],
     [v.sub, v.subGain],
   ]) {
-    gain.gain.cancelScheduledValues(t);
+    holdAt(gain.gain, t); // let go mid-swell, it fades from where it had got to
     gain.gain.setTargetAtTime(0, t, SYNTH_RELEASE);
     osc.stop(t + SYNTH_STOP);
     osc.onended = () => gain.disconnect();

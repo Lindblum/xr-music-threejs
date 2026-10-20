@@ -209,13 +209,13 @@ function useTouches(cells, instrument, velocitySensitive, instrumentOf) {
   const latest = useRef({ cells, instrument, velocitySensitive, instrumentOf });
   latest.current = { cells, instrument, velocitySensitive, instrumentOf };
 
-  // a new board or instrument: let go of everything; still-touching hands strike again
+  // a new board: let go of everything; still-touching hands strike again (a new instrument lets notes ring on)
   useEffect(() => {
     touches.current.clear();
     voicesOf.current.clear();
     bends.current.clear();
     allNotesOff();
-  }, [cells, instrument]);
+  }, [cells]);
 
   const touch = useCallback((source, indices, velocity = 1) => {
     const map = touches.current;
@@ -271,6 +271,7 @@ export default function Scene({
   holding,
   menuPressed,
   screenMenu,
+  instrumentChoice,
   onExitXR,
 }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
@@ -295,15 +296,19 @@ export default function Scene({
   // and [{ id, instrument }], to draw them
   const currentInstrument = useRef(state.instrument);
   currentInstrument.current = state.instrument;
+  // what each controller's ball (or tracked hand's fingertip) plays: the menu's instrument as a session starts,
+  // then whatever that controller chooses
+  const handInstruments = useRef({});
   const picks = useRef(new Map([[0, { object: null, dock: firstPickDock(), instrument: state.instrument }]]));
   const nextPickId = useRef(1);
   const [pickList, setPickList] = useState(() => [{ id: 0, instrument: state.instrument }]);
   const listPicks = useCallback(() => setPickList([...picks.current].map(([id, p]) => ({ id, instrument: p.instrument }))), []);
-  // a new pick from the toolbox plays the instrument chosen now
+  // a new pick from the toolbox plays what the controller taking it does
   const spawnPick = useCallback(
     (hand) => {
       const id = nextPickId.current++;
-      picks.current.set(id, { object: null, dock: { to: hand, placed: true, scale: 1 }, instrument: currentInstrument.current });
+      const instrument = handInstruments.current[hand] ?? currentInstrument.current;
+      picks.current.set(id, { object: null, dock: { to: hand, placed: true, scale: 1 }, instrument });
       listPicks();
     },
     [listPicks],
@@ -320,21 +325,27 @@ export default function Scene({
   const strings = cells.length / FRETS;
   // where the FilterFrame first appears: fixed, so a new tuning never moves it out from under a hand
   const [filterFrameStart] = useState(() => filterFramePosition(strings));
-  // a pick plays its own instrument; everything else (controllers, fingertips, the mouse, gaze) the one chosen
-  const instrumentOf = useCallback((source) => (source.startsWith('pick:') ? picks.current.get(Number(source.slice(5)))?.instrument : null), []);
+  // a pick plays its own instrument, a controller (or hand) its own; the mouse and gaze the menu's
+  const instrumentOf = useCallback((source) => {
+    if (source.startsWith('pick:')) return picks.current.get(Number(source.slice(5)))?.instrument;
+    return handInstruments.current[source] ?? null;
+  }, []);
   const [touches, touch, press, bend] = useTouches(cells, state.instrument, state.velocity, instrumentOf);
-  // choosing an instrument gives it to the picks in hand (docked on a controller, or held), as well as the controllers
+  // a session starts with both controllers playing the menu's instrument
   useEffect(() => {
-    let changed = false;
-    for (const [id, p] of picks.current) {
-      const { holding = {} } = handles.current.picks?.[id] ?? {};
-      const inHand = p.dock.to === 'left' || p.dock.to === 'right' || Object.values(holding).some(Boolean);
-      if (!inHand || p.instrument === state.instrument) continue;
-      p.instrument = state.instrument;
-      changed = true;
-    }
-    if (changed) listPicks();
-  }, [state.instrument, listPicks]);
+    handInstruments.current = inSession ? { left: currentInstrument.current, right: currentInstrument.current } : {};
+  }, [inSession]);
+  // an instrument chosen by a controller is that controller's alone: given to the pick it has docked or is
+  // holding, if it has one, else to its ball
+  useEffect(() => {
+    if (!instrumentChoice) return;
+    const { hand, instrument } = instrumentChoice;
+    const held = [...picks.current].find(([id, p]) => p.dock.to === hand || handles.current.picks?.[id]?.holding?.[hand]);
+    if (held) {
+      held[1].instrument = instrument;
+      listPicks();
+    } else handInstruments.current[hand] = instrument;
+  }, [instrumentChoice, listPicks]);
   const hoverMouse = useCallback((index, velocity) => press('mouse', index, velocity), [press]);
 
   useEffect(() => {

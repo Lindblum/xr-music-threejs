@@ -5,31 +5,124 @@ export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A',
 
 export const mod12 = (note) => ((note % 12) + 12) % 12;
 
-export const noteName = (note) => NOTE_NAMES[mod12(Math.round(note))];
+/** Quarter tones, named from the nearest natural: QUARTER_NAMES[n] is n + ½ (E↓ is E half-flat). */
+export const QUARTER_NAMES = ['C↑', 'D↓', 'D↑', 'E↓', 'E↑', 'F↑', 'G↓', 'G↑', 'A↓', 'A↑', 'B↓', 'B↑'];
+
+/** The note's name, to the nearest quarter tone. */
+export function noteName(note) {
+  const quarters = Math.round(2 * note);
+  return quarters % 2 ? QUARTER_NAMES[mod12(Math.floor(quarters / 2))] : NOTE_NAMES[mod12(quarters / 2)];
+}
 
 export const noteToFrequency = (note) => 440 * 2 ** ((note - 9) / 12);
 export const frequencyToNote = (hz) => 12 * Math.log2(hz / 440) + 9;
 
-/** Scales as semitones above the key. `chord` is the triad on the key, raised a little further. */
+/**
+ * Scales as semitones above the key. `chord` is the triad on the key, raised a
+ * little further. A scale with a half step in it (3.5) is in 24-TET: see fretStep.
+ */
 export const SCALES = [
-  { id: 'major', name: 'Major', steps: [0, 2, 4, 5, 7, 9, 11], chord: [0, 4, 7] },
+  { id: 'major', name: 'Diatonic Major', steps: [0, 2, 4, 5, 7, 9, 11], chord: [0, 4, 7] },
+  { id: 'minor', name: 'Natural Minor', steps: [0, 2, 3, 5, 7, 8, 10], chord: [0, 3, 7] },	//Aeolian
+  { id: 'dorian', name: 'Dorian Mode', steps: [0,2,3,5,7,9,10], chord: [0,3,7] },
+  { id: 'phrygian', name: 'Phrygian Mode', steps: [0,1,3,5,7,8,10], chord: [0,3,7] },
+  { id: 'lydian', name: 'Lydian Mode', steps: [0,2,4,6,7,9,11], chord: [0,4,7] },
+  { id: 'mixolydian', name: 'Mixolydian Mode', steps: [0,2,4,5,7,9,10], chord: [0,4,7] },
+  { id: 'locrian', name: 'Locrian Mode', steps: [0,1,3,5,6,8,10], chord: [0,3,6] },
   { id: 'majorPentatonic', name: 'Major Pentatonic', steps: [0, 2, 4, 7, 9], chord: [0, 4, 7] },
   { id: 'minorPentatonic', name: 'Minor Pentatonic', steps: [0, 3, 5, 7, 10], chord: [0, 3, 7] },
-  { id: 'minor', name: 'Natural Minor', steps: [0, 2, 3, 5, 7, 8, 10], chord: [0, 3, 7] },
+  { id: 'chromatic', name: 'Chromatic', steps: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], chord: [0,4,7] },
   { id: 'blues', name: 'Blues', steps: [0, 3, 5, 6, 7, 10], chord: [0, 3, 7] },
-  { id: 'chromatic', name: 'Chromatic', steps: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], chord: [] },
+  { id: 'harmonicMajor', name: 'Harmonic Major', steps: [0,2,4,5,7,8,11], chord: [0,4,7] },
+  { id: 'harmonicMinor', name: 'Harmonic Minor', steps: [0,2,3,5,7,8,11], chord: [0,3,7] },
+  { id: 'wholeTone', name: 'Whole Tone', steps: [0,2,4,6,8,10], chord: [0,4,6] },
+  { id: 'alteredDominant', name: 'Altered Dominant', steps: [0,1,3,4,6,8,10], chord: [0,3,6] },
+  { id: 'augmented', name: 'Augmented', steps: [0,3,4,7,8,11], chord: [0,4,0] },
+  { id: 'tritone', name: 'Tritone', steps: [0,1,4,6,7,10], chord: [0,4,7] },
+  { id: 'persian', name: 'Persian', steps: [0,1,4,5,6,8,11], chord: [0,4,6] },
+  { id: 'doubleHarmonicMajor', name: 'Double Harmonic Major', steps: [0,1,4,5,7,8,11], chord: [0,4,7] },	//Arabic Maqam Hijaz Kar,Gypsy major,Byzantine-
+  { id: 'doubleHarmonicMinor', name: 'Double Harmonic Minor', steps: [0,2,3,6,7,8,11], chord: [0,3,7] },	//Hungarian Minor
+  { id: 'gypsy', name: 'Gypsy', steps: [0,2,3,6,7,8,10], chord: [0,3,7] },
+  { id: 'acoustic', name: 'Acoustic', steps: [0,2,4,6,7,9,10], chord: [0,3,7] },	//Lydian Dominant
+  { id: 'phrygianDominant', name: 'Phrygian Dominant', steps: [0,1,4,5,7,8,10], chord: [0,4,7] },	//Spanish Gypsy
+  { id: 'majorLocrian', name: 'Major Locrian', steps: [0,2,4,5,6,8,10], chord: [0,4,6] },
+  { id: 'neapolitanMajor', name: 'Neapolitan Major', steps: [0,1,3,5,7,9,11], chord: [0,3,7] },
+  { id: 'neapolitanMinor', name: 'Neapolitan Minor', steps: [0,1,3,5,7,8,11], chord: [0,3,7] },
+  { id: 'bluesHeptatonic', name: 'Blues Heptatonic', steps: [0,3,5,6,7,10], chord: [] },
+  { id: 'halfDiminished', name: 'Half Diminished', steps: [0,2,3,5,6,8,10], chord: [] },
+  
+  { id: 'in', name: 'In', steps: [0,1,4,7,8], chord: [0,4,7] },
+  { id: 'insen', name: 'Insen', steps: [0,1,4,7,10], chord: [0,4,7] },
+  { id: 'iwato', name: 'Iwato', steps: [0,1,5,6,10], chord: [0,5,6] },
+  { id: 'hirajoshi', name: 'Hirajoshi', steps: [0,2,3,7,8], chord: [0,3,7] },
+  { id: 'yo', name: 'Yo', steps: [0,3,5,7,11], chord: [0,3,7] },
+  
+  { id: 'maqamSaba', name: 'Maqam Saba', steps: [0,1.5,3,4,7,8,10], chord: [] },
+  { id: 'maqamSabaZamzam', name: 'Maqam Saba Zamzam', steps: [0,1,3,4,7,8,10], chord: [] },
+  { id: 'maqamHijazKar', name: 'Maqam Hijaz Kar', steps: [0,1,4,5,7,8,11], chord: [] },
+  { id: 'maqamHijazNahawand', name: 'Maqam Hijaz Nahawand', steps: [0,1,4,5,7,8,10], chord: [] },
+  { id: 'maqamHijazRast', name: 'Maqam Hijaz Rast', steps: [0,1,4,5,7,8.5,10], chord: [] },
+  { id: 'maqamHijazZanjaran', name: 'Maqam Hijaz Zanjaran', steps: [0,1,4,5,7,9,10], chord: [] },
+  { id: 'maqamKurd', name: 'Maqam Kurd', steps: [0,1,3,5,7,8,10], chord: [] },
+  { id: 'maqamBayati', name: 'Maqam Bayati', steps: [0,1.5,3,5,7,8,10], chord: [] },
+  { id: 'maqamBayatiHusseini', name: 'Maqam Bayati Husseini', steps: [0,1.5,3,5,7,8.5,10], chord: [] },
+  { id: 'maqamBayatiShuri', name: 'Maqam Bayati Shuri', steps: [0,1.5,3,5,6,9,10], chord: [] },
+  { id: 'maqamSikah', name: 'Maqam Sikah', steps: [0,1.5,3.5,5.5,6.5,8.5,10.5], chord: [] },
+  { id: 'maqamSikahHuzam', name: 'Maqam Sikah Huzam', steps: [0,1.5,3.5,4.5,7.5,8.5,10.5], chord: [] },
+  { id: 'maqamSikahBaladi', name: 'Maqam Sikah Baladi', steps: [0,1.5,3.5,5,7,8.5,10.5], chord: [] },
+  { id: 'maqamSikahBastanikar', name: 'Maqam Sikah Bastanikar', steps: [0,1.5,3.5,5,6.5,7.5,10.5], chord: [] },
+  { id: 'maqamSikahIraq', name: 'Maqam Sikah Iraq', steps: [0,1.5,3.5,5,6.5,8.5,10.5], chord: [] },
+  { id: 'maqamSikahMustaar', name: 'Maqam Sikah Mustaar', steps: [0,2.5,3.5,5.5,6.5,8.5,10.5], chord: [] },
+  { id: 'maqamNawaAthar', name: 'Maqam Nawa Athar', steps: [0,2,3,6,7,8,11], chord: [] },
+  { id: 'maqamNahawand', name: 'Maqam Nahawand', steps: [0,2,3,5,7,8,11], chord: [] },
+  { id: 'maqamNahawandFarahfaza', name: 'Maqam Nahawand Farahfaza', steps: [0,2,3,5,7,8,10], chord: [] },
+  { id: 'maqamNahawandNikriz', name: 'Maqam Nahawand Nikriz', steps: [0,2,3,6,7,9,10], chord: [] },
+  { id: 'maqamNahawandMurassah', name: 'Maqam Nahawand Murassah', steps: [0,2,3,5,6,9,10], chord: [] },
+  { id: 'maqamNahawandUshaqMasri', name: 'Maqam Nahawand Ushaq Masri', steps: [0,2,3,5,7,8.5,10], chord: [] },
+  { id: 'maqamRast', name: 'Maqam Rast', steps: [0,2,3.5,5,7,9,10.5], chord: [] },
+  { id: 'maqamRast Suznak', name: 'Maqam Rast Suznak', steps: [0,2,3.5,5,7,8,11], chord: [] },
+  { id: 'maqamRast Nairuz', name: 'Maqam Rast Nairuz', steps: [0,2,3.5,5,7,8.5,10], chord: [] },
+  { id: 'maqamRast Nahawand', name: 'Maqam Rast Nahawand', steps: [0,2,3.5,5,7,9,10], chord: [] },
+  { id: 'maqamRast Mahur', name: 'Maqam Rast Mahur', steps: [0,2,3.5,5,7,9,11], chord: [] },
+  { id: 'maqamAjam', name: 'Maqam Ajam', steps: [0,2,4,5,7,8,11], chord: [] },
+  { id: 'maqamAjamJiharkah', name: 'Maqam Ajam Jiharkah', steps: [0,2,4,5,7,9,10.5], chord: [] },
 ];
 
 /** Open strings, lowest first: the bottom row of the board. */
 export const TUNINGS = [
   { id: 'guitar', name: 'Guitar EADGBE', strings: [-20, -15, -10, -5, -1, 4] },
-  { id: 'dropD', name: 'Guitar Drop D', strings: [-22, -15, -10, -5, -1, 4] },
-  { id: 'fourths', name: 'All Fourths', strings: [-20, -15, -10, -5, 0, 5] },
+  { id: 'thirds', name: 'Thirds EG#CEG#C', strings: [-20, -16, -12, -8, -4, 0] },
+  { id: 'fourths', name: 'Fourths EADGCF', strings: [-20, -15, -10, -5, 0, 5] },
+  { id: 'fifths', name: 'Fifths CGDAEB', strings: [-24, -17, -10, -3, 4, 11] },
+  { id: 'dropC', name: 'Drop C CGCFAD', strings: [-24, -17, -12, -7, -3, 2] },
+  { id: 'dropD', name: 'Drop D DADGBE', strings: [-22, -15, -10, -5, -1, 4] },
+
+  { id: 'openA', name: 'Open A EAC#EAE', strings: [-20, -15, -11, -8, -3, 4] },
+  { id: 'openB', name: 'Open B BF#BF#BD#', strings: [-25, -18, -13, -6, -1, 3] },
+  { id: 'openC', name: 'Open C CGCGCE', strings: [-24, -17, -12, -5, 0, 4] },
+  { id: 'openD', name: 'Open D DADF#AD', strings: [-22, -15, -10, -6, -3, 2] },
+  { id: 'openE', name: 'Open E EBEG#BE', strings: [-20, -13, -8, -4, -1, 4] },
+  { id: 'openF', name: 'Open F CFCFAF', strings: [-24, -19, -12, -7, -3, 5] },
+  { id: 'openG', name: 'Open G DGDGBD', strings: [-22, -17, -10, -5, -1, 2] },
+  { id: 'celtic', name: 'Celtic DADGAD', strings: [-22, -15, -10, -5, -3, 2] },
+  { id: 'sevenString', name: '7-String BEADGBE', strings: [-25, -20, -15, -10, -5, -1, 4] },
+  { id: 'eightStringTritone', name: '8-String Tritone CF#CF#CF#CF#', strings: [-24,-18,-12,-6,0,6,12,18] },
+  { id: 'eightStringFifthsFourths', name: '8-String Fifths-Fourths CGCGCGCG', strings: [-24,-17,-12,-5,0,7,12,19] },
   { id: 'bass', name: 'Bass EADG', strings: [-32, -27, -22, -17] },
   { id: 'ukulele', name: 'Ukulele GCEA', strings: [7, 0, 4, 9] },
+  { id: 'mandolin', name: 'Mandolin GDAE', strings: [-5, 2, 9, 16] },
+  { id: 'fripp', name: 'Robert Fripp CGDAEG', strings: [-24, -17, -10, -3, 4, 7] }, // Robert Fripp's New Standard Tuning
+  { id: 'drake', name: 'Nick Drake CGCFCE', strings: [-24, -17, -12, -7, 0, 4] },
 ];
 
-export const isInSteps = (note, key, steps) => steps.includes(mod12(Math.round(note) - key));
+/** Whether the scale has quarter tones, so the board is laid out in 24-TET. */
+export const isMicrotonal = (scale) => scale.steps.some((step) => !Number.isInteger(step));
+
+/** Semitones from one fret to the next: a quarter tone for a microtonal scale. */
+export const fretStep = (scale) => (isMicrotonal(scale) ? 0.5 : 1);
+
+/** Whether the note, to the nearest quarter tone, is one of `steps` above the key. */
+export const isInSteps = (note, key, steps) => steps.includes(mod12(Math.round(2 * note) / 2 - key));
 
 /**
  * Chord qualities: the chord's notes, as semitones above the root, and the
@@ -106,10 +199,11 @@ const TRIAD_SEARCH = ['maj', 'min', 'dim', 'aug', 'sus2', 'sus4'].map(chordType)
  * The triad on each degree of the key's scale: the first quality whose notes
  * all lie in the scale (major, minor, diminished or augmented, else a sus
  * chord), named by its roman numeral: "ii: Dm", "vii°: B°". Degrees with none
- * are left out. Each: { step (semitones above the key), chord, label }.
+ * are left out, as are quarter-tone degrees, the chords being 12-TET. Each:
+ * { step (semitones above the key), chord, label }.
  */
 export function keyChords(key, scale) {
-  return scale.steps.flatMap((step) => {
+  return scale.steps.filter(Number.isInteger).flatMap((step) => {
     const type = TRIAD_SEARCH.find((t) => t.steps.every((s) => scale.steps.includes(mod12(step + s))));
     if (!type) return [];
     const chord = { root: mod12(key + step), type: type.id, modifier: 'none' };

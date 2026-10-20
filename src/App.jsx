@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { Canvas } from '@react-three/fiber';
 import { XR, createXRStore, useXRSessionModeSupported } from '@react-three/xr';
@@ -12,7 +12,7 @@ import { buildCells } from './Fretboard.jsx';
 import { EFFECTS, INSTRUMENTS, loadInstrument, playChord, setBeatGrid, setEffectAmount, setEffectOn, unlockAudio } from './audio.js';
 import { SCALES, TUNINGS, builtChord, chordNotes, chordPitchClasses, keyChordChart, mod12, stockChords } from './music.js';
 import { useProgression } from './progression.js';
-import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './settings.js';
+import { DEFAULT_SETTINGS, loadSavedProgressions, loadSettings, saveSavedProgressions, saveSettings } from './settings.js';
 import { startRecording, stopRecording } from './recorder.js';
 import { analyze } from './analyze.js';
 import { RESET_EFFECTS } from './SideFrames.jsx';
@@ -114,6 +114,9 @@ function useMusicState() {
   const [beatsPerMeasure, setBeatsPerMeasure] = useState(saved.beatsPerMeasure);
   const [progression, setProgression] = useState(saved.progression); // chords: { root, type, modifier }, see music.js
   const [draft, setDraft] = useState(saved.draft); // the chord Add Chord adds: { degree, alteration, type, modifier }, see music.js
+  const [savedProgressions, setSavedProgressions] = useState(loadSavedProgressions); // saved by name: see settings.js
+  const [naming, setNaming] = useState(null); // the name being typed for Save, or null
+  const [saveError, setSaveError] = useState(null); // why the last Save didn't, or null
   // a new key moves the progression with it: every chord's root by the same interval
   const keyWas = useRef(key);
   useEffect(() => {
@@ -124,7 +127,7 @@ function useMusicState() {
   // the FilterFrame's sliders, effect id -> 0..1: they move every frame while dragged, so they're no state (see SideFrames.jsx)
   const effectAmounts = useRef(saved.effectAmounts);
   const latest = useRef(null); // the settings as they are now, for saving the sliders with
-  latest.current = { instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft };
+  latest.current = { instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft, savedProgressions };
   const save = useCallback(() => saveSettings({ ...latest.current, effectAmounts: effectAmounts.current }), []);
   useEffect(save, [save, instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft]);
   // a slider moved: heard at once, and saved once it's been still a moment
@@ -212,10 +215,71 @@ function useMusicState() {
         setDropdown(null);
       },
       removeChord: (index) => setProgression((p) => p.filter((_, i) => i !== index)),
+      /** Save's name field opens, holding `name` to start from; typed into, it's `name`. */
+      startNaming: (name) => {
+        setNaming(name);
+        setSaveError(null);
+        setDropdown(null);
+      },
+      nameProgression: setNaming,
+      cancelNaming: () => setNaming(null),
+      /** Deletes the saved progression at `index`; the last one gone, Load's list closes. */
+      deleteSavedProgression: (index) => {
+        const next = latest.current.savedProgressions.filter((_, i) => i !== index);
+        saveSavedProgressions(next); // smaller than before, so it always fits
+        setSavedProgressions(next);
+        setSaveError(null);
+        if (!next.length) setDropdown(null);
+      },
+      /**
+       * Saves the progression and its key as `name`: in place
+       * of one already so named, else after the rest. If the browser won't
+       * store it, nothing is saved and the panel says so.
+       */
+      saveProgression: (name) => {
+        const { key, progression, savedProgressions: list } = latest.current;
+        const entry = { name: name.trim(), key, chords: progression };
+        const at = list.findIndex((p) => p.name === entry.name);
+        const next = at < 0 ? [...list, entry] : list.map((p, i) => (i === at ? entry : p));
+        if (!saveSavedProgressions(next)) {
+          setSaveError(`Couldn't save "${entry.name}": this browser won't store it (its storage is full, or blocked for this site).`);
+          return;
+        }
+        setSavedProgressions(next);
+        setNaming(null);
+        setSaveError(null);
+      },
+      /** Takes on a saved progression: its key, and its chords (as they are: the key change mustn't move them). The scale and tempo stay. */
+      loadProgression: (saved) => {
+        keyWas.current = saved.key;
+        setKey(saved.key);
+        setProgression(saved.chords);
+        setDropdown(null);
+      },
     }),
     [],
   );
-  const state = { instrument, scale, key, tuning, quantize, effects, velocity, playOnSelect, background, menuOpen, sections, dropdown, bpm, beatsPerMeasure, progression, draft };
+  const state = {
+    instrument,
+    scale,
+    key,
+    tuning,
+    quantize,
+    effects,
+    velocity,
+    playOnSelect,
+    background,
+    menuOpen,
+    sections,
+    dropdown,
+    bpm,
+    beatsPerMeasure,
+    progression,
+    draft,
+    savedProgressions,
+    naming,
+    saveError,
+  };
   return [state, actions, { effectAmounts, slideEffect }];
 }
 
@@ -313,6 +377,7 @@ function trailingIcon(item) {
 }
 
 const DRAG_START = 6; // px the pointer moves before a press on a queued chord becomes a drag
+const INDENT = 24; // px an open section's buttons are set in, as far as a dropdown's choices
 
 /** The playing chord's background: its dark colour split into the measure's beats, the current one bright. */
 function beatStyle({ color, dim, beats, beat }) {
@@ -383,7 +448,53 @@ function useQueueDrag(onQueueEdit) {
   return { drag: drag?.moved ? drag : null, handlers, wasDrag };
 }
 
-function MenuButton({ item, onSelect, queue }) {
+/**
+ * Dragging a choice out of a `removable` dropdown (Load's saved
+ * progressions) in the windowed panel: dropped outside the panel, it's
+ * removed (`onRemove(option id)`). Returns { drag, handlers(option),
+ * wasDrag }: `drag` is { label, x, y, outside } once the pointer has moved,
+ * for drawing.
+ */
+function useOptionDrag(onRemove) {
+  const [drag, setDrag] = useState(null);
+  const current = useRef(null);
+  const dragged = useRef(false); // a drag just ended: the click that follows isn't one
+  const update = (next) => {
+    current.current = next;
+    setDrag(next);
+  };
+  const handlers = (option) => ({
+    onPointerDown: (e) => {
+      if (e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      update({ id: option.id, label: option.label, startX: e.clientX, startY: e.clientY, moved: false });
+    },
+    onPointerMove: (e) => {
+      const d = current.current;
+      if (!d) return;
+      const moved = d.moved || Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > DRAG_START;
+      if (!moved) return;
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      update({ ...d, moved, x: e.clientX, y: e.clientY, outside: !under?.closest('.hud') });
+    },
+    onPointerUp: () => {
+      const d = current.current;
+      update(null);
+      dragged.current = Boolean(d?.moved);
+      if (d?.moved && d.outside) onRemove?.(d.id);
+    },
+    onPointerCancel: () => update(null),
+  });
+  /** Whether a click on a choice is really the end of a drag (and forgets it). */
+  const wasDrag = () => {
+    const was = dragged.current;
+    dragged.current = false;
+    return was;
+  };
+  return { drag: drag?.moved ? drag : null, handlers, wasDrag };
+}
+
+function MenuButton({ item, onSelect, onName, queue }) {
   const trailing = !item.compact && trailingIcon(item);
   const queued = item.queueIndex != null;
   const drag = queue?.drag;
@@ -400,6 +511,24 @@ function MenuButton({ item, onSelect, queue }) {
   ]
     .filter(Boolean)
     .join(' ');
+  // a field to type into, in a button's shape: Enter confirms (the button after it), Escape cancels (the one after that)
+  if (item.input)
+    return (
+      <input
+        className="menu-btn menu-input"
+        value={item.input.value}
+        placeholder={item.input.placeholder}
+        aria-label={item.input.placeholder}
+        maxLength={40}
+        autoFocus
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => onName?.(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onSelect('confirmSave');
+          else if (e.key === 'Escape') onSelect('cancelSave');
+        }}
+      />
+    );
   // just text to read: a button's shape, not one
   if (item.info)
     return (
@@ -427,20 +556,33 @@ function MenuButton({ item, onSelect, queue }) {
   );
 }
 
-/** An open dropdown's choices, `dropdown.columns` to a row beneath its button (or its row). */
-function MenuOptions({ dropdown, onSelect }) {
+/**
+ * An open dropdown's choices, `dropdown.columns` to a row beneath its button
+ * (or its row). A `removable` dropdown's choices are dragged out of the panel
+ * to remove them (see useOptionDrag).
+ */
+function MenuOptions({ dropdown, onSelect, optionDrag }) {
+  const removable = dropdown.removable && optionDrag;
   return (
     <div className="menu-options" role="listbox" style={{ gridTemplateColumns: `repeat(${dropdown.columns ?? 2}, minmax(0, 1fr))` }}>
       {dropdown.options.map((option) => (
         <button
           key={option.id}
-          className={`menu-option${option.selected ? ' selected' : ''}`}
+          className={[
+            'menu-option',
+            option.selected && 'selected',
+            removable && 'removable',
+            removable && optionDrag.drag?.id === option.id && 'dragging',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           role="option"
           aria-selected={option.selected}
           aria-disabled={option.disabled || undefined}
           disabled={option.disabled}
-          title={option.title}
-          onClick={() => onSelect(option.id)}
+          title={option.title ?? (removable ? 'Click to load; drag out of the panel to delete' : undefined)}
+          onClick={() => (!removable || !optionDrag.wasDrag()) && onSelect(option.id)}
+          {...(removable ? optionDrag.handlers(option) : {})}
         >
           {option.icon && <Icon name={option.icon} />}
           <span className="option-label">{option.label}</span>
@@ -452,9 +594,9 @@ function MenuOptions({ dropdown, onSelect }) {
 }
 
 /** One row of buttons: a single button, or several in equal columns (see menuBlocks). */
-function MenuRow({ row, onSelect, queue }) {
+function MenuRow({ row, onSelect, onName, queue, optionDrag }) {
   const open = row.find((item) => item.dropdown?.open);
-  const buttons = row.map((item) => <MenuButton key={item.id} item={item} onSelect={onSelect} queue={queue} />);
+  const buttons = row.map((item) => <MenuButton key={item.id} item={item} onSelect={onSelect} onName={onName} queue={queue} />);
   return (
     <>
       {row[0].row == null ? (
@@ -464,7 +606,7 @@ function MenuRow({ row, onSelect, queue }) {
           {buttons}
         </div>
       )}
-      {open && <MenuOptions dropdown={open.dropdown} onSelect={onSelect} />}
+      {open && <MenuOptions dropdown={open.dropdown} onSelect={onSelect} optionDrag={optionDrag} />}
     </>
   );
 }
@@ -484,13 +626,16 @@ function SizerButton({ text, compact, icon = true, small, trailing = true }) {
   );
 }
 
-function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
+function MenuButtons({ items, labels, onSelect, onQueueEdit, onName, onRemoveOption }) {
   const queue = useQueueDrag(onQueueEdit);
   const { drag } = queue;
+  const optionDrag = useOptionDrag(onRemoveOption);
   return (
     <div className="menu-items">
       {menuBlocks(items).map((block, b) => {
-        const rows = block.rows.map((row) => <MenuRow key={row[0].id} row={row} onSelect={onSelect} queue={queue} />);
+        const rows = block.rows.map((row) => (
+          <MenuRow key={row[0].id} row={row} onSelect={onSelect} onName={onName} queue={queue} optionDrag={optionDrag} />
+        ));
         const content = block.group ? (
           <div key={`group-${block.group}`} className="menu-group" data-group={block.group}>
             {rows}
@@ -498,9 +643,9 @@ function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
         ) : (
           <Fragment key={`block-${b}`}>{rows}</Fragment>
         );
-        // an open section's buttons, set in beneath its header like a dropdown's choices
+        // an open section's buttons, set in beneath its header like a dropdown's choices, a step for each section
         return block.indent ? (
-          <div key={`indent-${b}`} className="menu-indent">
+          <div key={`indent-${b}`} className="menu-indent" style={{ marginLeft: INDENT * block.indent }}>
             {content}
           </div>
         ) : (
@@ -513,32 +658,49 @@ function MenuButtons({ items, labels, onSelect, onQueueEdit }) {
           {drag.outside ? `Remove ${drag.label}` : drag.label}
         </div>
       )}
+      {/* ...and a dragged saved progression, red where letting go deletes it */}
+      {optionDrag.drag && (
+        <div className={`queue-ghost${optionDrag.drag.outside ? ' outside' : ''}`} style={{ left: optionDrag.drag.x, top: optionDrag.drag.y }} aria-hidden="true">
+          {optionDrag.drag.outside ? `Delete ${optionDrag.drag.label}` : optionDrag.drag.label}
+        </div>
+      )}
       {/* invisible, zero-height copies of every possible label (and row of them): they set the panel's width */}
-      <div className="menu-sizer" aria-hidden="true">
-        {labels.map((entry) => {
-          if (typeof entry === 'string') return <SizerButton key={entry} text={entry} />;
-          // each column its shares: under max-content sizing, the grid makes every share as wide as the neediest column's
-          const row = (
-            <div className="menu-row sizer-row" style={{ gridTemplateColumns: entry.row.map(({ span }) => `${span}fr`).join(' ') }}>
-              {entry.row.map(({ text, icon, trailing }, i) => (
-                <SizerButton key={i} text={text} compact={entry.compact} icon={icon} small={entry.small} trailing={trailing} />
-              ))}
-            </div>
-          );
-          const key = JSON.stringify(entry);
-          const framed = entry.group ? <div className="menu-group">{row}</div> : row;
-          return entry.indent ? (
-            <div key={key} className="menu-indent">
-              {framed}
-            </div>
-          ) : (
-            <Fragment key={key}>{framed}</Fragment>
-          );
-        })}
-      </div>
+      <MenuSizer labels={labels} />
     </div>
   );
 }
+
+/**
+ * Invisible, zero-height copies of every possible label (and row of them),
+ * which set the panel's width. There are thousands, and they never change, so
+ * a menu update doesn't re-render them.
+ */
+const MenuSizer = memo(function MenuSizer({ labels }) {
+  return (
+    <div className="menu-sizer" aria-hidden="true">
+      {labels.map((entry) => {
+        if (typeof entry === 'string') return <SizerButton key={entry} text={entry} />;
+        // each column its shares: under max-content sizing, the grid makes every share as wide as the neediest column's
+        const row = (
+          <div className="menu-row sizer-row" style={{ gridTemplateColumns: entry.row.map(({ span }) => `${span}fr`).join(' ') }}>
+            {entry.row.map(({ text, icon, trailing }, i) => (
+              <SizerButton key={i} text={text} compact={entry.compact} icon={icon} small={entry.small} trailing={trailing} />
+            ))}
+          </div>
+        );
+        const key = JSON.stringify(entry);
+        const framed = entry.group ? <div className="menu-group">{row}</div> : row;
+        return entry.indent ? (
+          <div key={key} className="menu-indent" style={{ marginLeft: INDENT * entry.indent }}>
+            {framed}
+          </div>
+        ) : (
+          <Fragment key={key}>{framed}</Fragment>
+        );
+      })}
+    </div>
+  );
+});
 
 /**
  * The menu on the screen, in front of whatever view is showing: the windowed
@@ -568,8 +730,38 @@ function ScreenMenu({ menu, notes, pressing }) {
   );
 }
 
-/** The windowed panel: draws the shared menu model (see XRMenuPanel for XR). */
+const HUD_MIN = { width: 220, height: 120 }; // px: the smallest the panel can be dragged to
+const HUD_MARGIN = 12; // px kept clear between the panel and the window's right and bottom edges
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+
+/**
+ * The windowed panel: draws the shared menu model (see XRMenuPanel for XR).
+ * Its corner grip resizes it (double-click fits it to its buttons again);
+ * the size holds while it's closed and opened again.
+ */
 function Hud({ menu, notes }) {
+  const panel = useRef(null);
+  const [size, setSize] = useState(null); // { width, height } in px, or null to fit the buttons
+  const startResize = (e) => {
+    e.preventDefault();
+    const grip = e.currentTarget;
+    grip.setPointerCapture(e.pointerId);
+    const box = panel.current.getBoundingClientRect();
+    const from = { x: e.clientX, y: e.clientY };
+    const onMove = (m) =>
+      setSize({
+        width: clamp(box.width + m.clientX - from.x, HUD_MIN.width, window.innerWidth - box.left - HUD_MARGIN),
+        height: clamp(box.height + m.clientY - from.y, HUD_MIN.height, window.innerHeight - box.top - HUD_MARGIN),
+      });
+    const onUp = () => {
+      grip.removeEventListener('pointermove', onMove);
+      grip.removeEventListener('pointerup', onUp);
+      grip.removeEventListener('pointercancel', onUp);
+    };
+    grip.addEventListener('pointermove', onMove);
+    grip.addEventListener('pointerup', onUp);
+    grip.addEventListener('pointercancel', onUp);
+  };
   // the gear, top left, opens and closes the panel; closed, the panel holds just the gear
   const gear = (
     <button
@@ -590,7 +782,7 @@ function Hud({ menu, notes }) {
     );
   }
   return (
-    <aside className="hud">
+    <aside className="hud" ref={panel} style={size ? { width: size.width, height: size.height } : undefined}>
       <header>
         {gear}
         <h1>{menu.title}</h1>
@@ -598,13 +790,14 @@ function Hud({ menu, notes }) {
 
       <div className="hud-body">
         {menu.status && <p className="stats">{menu.status}</p>}
-        <MenuButtons items={menu.items} labels={menu.labels} onSelect={menu.onSelect} onQueueEdit={menu.onQueueEdit} />
+        <MenuButtons items={menu.items} labels={menu.labels} onSelect={menu.onSelect} onQueueEdit={menu.onQueueEdit} onName={menu.onName} onRemoveOption={menu.onRemoveOption} />
         {notes.map(({ text, error }) => (
           <p key={text} className={error ? 'note error' : 'note'} role={error ? 'alert' : undefined}>
             {text}
           </p>
         ))}
       </div>
+      <div className="hud-resize" onPointerDown={startResize} onDoubleClick={() => setSize(null)} title="Drag to resize; double-click to fit" />
     </aside>
   );
 }
@@ -666,6 +859,8 @@ export default function App() {
   const [handheld, setHandheld] = useState(false); // the motion-sensor view is showing (phones without AR)
   const holding = useRef(false); // a finger held on the motion-sensor view's screen
   const menuPressed = useRef(false); // a finger on the screen's menu (see ScreenMenu)
+  // the last instrument an XR controller chose, for it alone: { hand, instrument, at } (see Scene.jsx)
+  const [instrumentChoice, setInstrumentChoice] = useState(null);
   // Analyze: { status: 'idle' | 'recording' | 'recorded' | 'analyzing' | 'done' | 'error', seconds (while recording),
   // recordedSeconds (the recording kept), result, error } (see menu.js); the recording itself, kept for Analyze
   const [analysis, setAnalysis] = useState({ status: 'idle' });
@@ -765,7 +960,11 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, [handheld]);
 
-  const onSelect = (id) => {
+  /**
+   * A menu choice. `source.hand` is the XR controller that made it, if one did:
+   * an instrument chosen so is that controller's alone (see Scene.jsx).
+   */
+  const onSelect = (id, source = {}) => {
     if (id === MENU_TOGGLE) actions.toggleMenu();
     else if (id.startsWith(SECTION_PREFIX)) actions.toggleSection(id.slice(SECTION_PREFIX.length));
     else if (id.startsWith(PICK_PREFIX)) {
@@ -780,7 +979,16 @@ export default function App() {
         if (player.playing) player.select(0);
         else player.stop();
         actions.applyStock(choice, state.key);
-      } else actions.pick(dropdownId, choice);
+      } else if (dropdownId === 'load') {
+        // as for a stock progression
+        if (player.playing) player.select(0);
+        else player.stop();
+        actions.loadProgression(choice);
+      } else {
+        actions.pick(dropdownId, choice);
+        if (dropdownId === 'instrument' && sessionActive && (source.hand === 'left' || source.hand === 'right'))
+          setInstrumentChoice({ hand: source.hand, instrument: choice, at: performance.now() });
+      }
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (id === 'velocity') actions.toggleVelocity();
     else if (id === 'play') player.toggle();
@@ -799,6 +1007,15 @@ export default function App() {
     }
     else if (id === 'addChord') actions.addChord(builtChord(state.draft, state.key));
     else if (id === 'clearProgression') actions.clearProgression();
+    else if (id === 'saveProgression') {
+      // a controller in XR has no keyboard to name it with: it's saved under the next free "Progression N"
+      const names = new Set(state.savedProgressions.map((p) => p.name));
+      let n = state.savedProgressions.length + 1;
+      while (names.has(`Progression ${n}`)) n++;
+      if ('hand' in source) actions.saveProgression(`Progression ${n}`);
+      else actions.startNaming(`Progression ${n}`);
+    } else if (id === 'confirmSave' && state.naming?.trim()) actions.saveProgression(state.naming);
+    else if (id === 'cancelSave') actions.cancelNaming();
   };
   /** A queued chord dragged to a new place ({ type: 'move', from, to }) or removed ({ type: 'remove', index }). */
   const onQueueEdit = (edit) => {
@@ -837,8 +1054,15 @@ export default function App() {
     items: menuItems({ ...state, view, player, analysis }, env),
     onSelect,
     onQueueEdit,
+    onName: actions.nameProgression,
+    // a saved progression dragged out of Load's list ("pick:load:<index>")
+    onRemoveOption: (id) => {
+      const [dropdownId, index] = id.slice(PICK_PREFIX.length).split(':');
+      if (dropdownId === 'load') actions.deleteSavedProgression(Number(index));
+    },
   };
   const notes = [
+    state.saveError && { text: state.saveError, error: true },
     sample === 'error' && { text: `Couldn't load ${state.instrument}.`, error: true },
     error && { text: error, error: true },
   ].filter(Boolean);
@@ -862,6 +1086,7 @@ export default function App() {
             phone={phone}
             holding={holding}
             menuPressed={menuPressed}
+            instrumentChoice={instrumentChoice}
             screenMenu={screenMenu}
           />
         </XR>

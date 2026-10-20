@@ -16,6 +16,8 @@ import stopwatch from 'lineicons/assets/svgs/regular/stopwatch.svg?raw';
 import layers from 'lineicons/assets/svgs/regular/layers-1.svg?raw';
 import arrowUp from 'lineicons/assets/svgs/regular/arrow-upward.svg?raw';
 import arrowDown from 'lineicons/assets/svgs/regular/arrow-downward.svg?raw';
+import floppyDisk from 'lineicons/assets/svgs/regular/floppy-disk-1.svg?raw';
+import folder from 'lineicons/assets/svgs/regular/folder-1.svg?raw';
 
 // Lineicons ship with a fixed fill; recolour to follow the surrounding text
 // and size to the font.
@@ -202,6 +204,9 @@ const ICONS = {
   remove: recolour(trash),
   earlier: recolour(arrowUp),
   later: recolour(arrowDown),
+  // saved progressions
+  save: recolour(floppyDisk),
+  load: recolour(folder),
 };
 
 /** An icon as a standalone SVG in a fixed colour, for drawing onto a canvas. */

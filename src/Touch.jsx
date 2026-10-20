@@ -8,8 +8,8 @@ import { chordOfNode, touchedChordNode } from './SideFrames.jsx';
 // Playing the Fretboard in XR, as in three.js's haptics demo: each
 // controller's collision sphere (2 cm, the picks' orange, just in front of
 // it; see controllerTip) or each hand's index fingertip is a small mallet.
-// Controllers and fingertips play the instrument chosen in the menu; picks
-// each play their own (see Scene.jsx).
+// Each controller (or hand), and each pick, plays its own instrument: the
+// one chosen in the menu by the controller holding it (see Scene.jsx).
 // Touching a cube strikes its note (every cube it touches, if it's between
 // them); a controller kicks as it enters a cube and hums softly while it
 // stays inside. Notes outside the scale only sound while the controller's

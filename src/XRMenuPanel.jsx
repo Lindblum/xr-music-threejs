@@ -105,7 +105,7 @@ function entryWidth(entry) {
     ),
   );
   const shares = entry.row.reduce((sum, { span }) => sum + span, 0);
-  return share * shares + (entry.row.length - 1) * COL_GAP + (entry.group ? 2 * GROUP_PAD : 0) + (entry.indent ? OPTION_INDENT : 0);
+  return share * shares + (entry.row.length - 1) * COL_GAP + (entry.group ? 2 * GROUP_PAD : 0) + (entry.indent ?? 0) * OPTION_INDENT;
 }
 
 function panelWidth(title, labels) {
@@ -129,8 +129,8 @@ function layout(open, items, lines, panelW) {
   const fullW = panelW - 2 * PAD;
   let y = TITLE_Y + 34 + lines * LINE_H + 16;
   for (const block of menuBlocks(items)) {
-    // an open section's buttons are set in beneath its header, as a dropdown's choices are
-    const indent = block.indent ? OPTION_INDENT : 0;
+    // an open section's buttons are set in beneath its header, as a dropdown's choices are, a step for each section
+    const indent = block.indent * OPTION_INDENT;
     const inset = block.group ? GROUP_PAD : 0;
     const x = PAD + indent + inset;
     const w = fullW - indent - 2 * inset;
@@ -231,7 +231,9 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   const [gazeKey, setGazeKey] = useState(null);
   const [iconsLoaded, setIconsLoaded] = useState(0);
   const lines = status ? 1 : 0;
-  const panelW = useMemo(() => panelWidth(title, labels ?? items.map((i) => i.label)), [title, labels, items]);
+  // sized for every label it can show, measured once: the items only count when there's no such list
+  const sizedItems = labels ? null : items;
+  const panelW = useMemo(() => panelWidth(title, labels ?? sizedItems.map((i) => i.label)), [title, labels, sizedItems]);
   const { width, height: contentHeight, rects, frames, top } = useMemo(() => layout(open, items, lines, panelW), [open, items, lines, panelW]);
   // taller than MAX_HEIGHT: the buttons scroll between the title and the bottom edge
   const height = open ? Math.min(contentHeight, MAX_HEIGHT) : contentHeight;
@@ -560,7 +562,8 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
           const key = pick(e);
           if (key == null) return;
           e.stopPropagation();
-          onSelect(key);
+          // which controller (or hand) chose it, for choices that belong to one (an instrument)
+          onSelect(key, { hand: e.pointerState?.inputSource?.handedness });
         }}
       >
         <planeGeometry args={[width * PX_M, height * PX_M]} />

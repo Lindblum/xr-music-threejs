@@ -11,7 +11,7 @@ import { instrumentIcon } from './menu.js';
 // near a controller it docks there (see Grab.jsx). Every part of a pick
 // strikes notes, as a controller's tip does (see Touch.jsx), in its own
 // instrument (a synth or a sample), whose icon and name it wears on both
-// faces. Let go by the mouth, a pick docks there, held flat in front of it
+// faces: the one chosen in the menu by the controller holding it (see Scene.jsx). Let go by the mouth, a pick docks there, held flat in front of it
 // as if in the teeth. In pick space it lies in the XY plane, face toward +Z,
 // tip pointing down -Y.
 
@@ -137,7 +137,7 @@ export const PICK_DOCK_ROTATION = new THREE.Quaternion().setFromRotationMatrix(
  * tip forward, its centre a little below and in front of the eyes, where the
  * mouth is.
  */
-export const PICK_MOUTH_POSITION = new THREE.Vector3(0, -0.08, -0.08);
+export const PICK_MOUTH_POSITION = new THREE.Vector3(0, -0.08, -0.1);
 export const PICK_MOUTH_ROTATION = new THREE.Quaternion().setFromRotationMatrix(
   // pick +X right, +Y back (the tip, -Y, forward), its face (+Z) down
   new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, -1, 0)),

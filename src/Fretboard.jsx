@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { isInSteps, mod12, noteCss, noteName, noteRgb } from './music.js';
+import { fretStep, isInSteps, mod12, noteCss, noteName, noteRgb } from './music.js';
 
 // The Fretboard: one cube per string and fret, like a guitar neck stood up
 // in front of the player, inside a picture frame, the NeckFrame. Each cube is coloured by
@@ -12,7 +12,7 @@ import { isInSteps, mod12, noteCss, noteName, noteRgb } from './music.js';
 // the chord) don't sound at a touch: the mouse has to
 // press them (or drag over them with the button down), and a controller has
 // to hold its trigger. A note can be bent: taken by a grip (see Grab.jsx) and
-// pulled along the frets, a fret's width for each semitone, it slides with
+// pulled along the frets, a fret's width for each fret's step, it slides with
 // the hand and its pitch follows; let go, it springs back home and its pitch
 // with it. The NeckFrame is the handle that moves, turns and scales the whole
 // Fretboard (see Grab.jsx). Fretboard space has its origin at the centre of
@@ -34,17 +34,23 @@ const MOUSE_STILL = 0.1; // seconds without a move: the mouse has stopped
 /** How far a cube stands out: the chord's notes furthest, then the scale's. */
 const raise = (inChord, inScale) => (inChord ? CHORD_RAISE : inScale ? SCALE_RAISE : 0);
 
-/** Every cube's note and place on the board (board-local metres). */
+/**
+ * Every cube's note and place on the board (board-local metres), and the
+ * semitones from its fret to the next (`step`): a quarter tone for a
+ * microtonal scale, so each string spans an octave rather than two.
+ */
 export function buildCells(tuning, key, scale) {
   const strings = tuning.strings;
+  const step = fretStep(scale);
   const cells = [];
   strings.forEach((open, s) => {
     for (let fret = 0; fret < FRETS; fret++) {
-      const note = open + fret;
+      const note = open + fret * step;
       const inScale = isInSteps(note, key, scale.steps);
       const inChord = isInSteps(note, key, scale.chord);
       cells.push({
         note,
+        step,
         inScale,
         inChord,
         position: [(fret - (FRETS - 1) / 2) * SPACING, (s - (strings.length - 1) / 2) * SPACING, raise(inChord, inScale)],
@@ -183,7 +189,7 @@ export function Fretboard({ boardRef, cells, chord, touches, handles, hoverEnabl
       const home = cells[i].position[0];
       if (bending[i] != null) mesh.position.x = home + bending[i];
       else mesh.position.x += (home - mesh.position.x) * spring;
-      let semitones = (mesh.position.x - home) / SPACING;
+      let semitones = ((mesh.position.x - home) / SPACING) * cells[i].step;
       if (Math.abs(semitones) < 0.005) {
         mesh.position.x = home;
         semitones = 0;

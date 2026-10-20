@@ -29,6 +29,9 @@ export const DEFAULT_SETTINGS = {
   draft: { degree: 0, alteration: 0, type: 'maj', modifier: 'none' }, // the chord Add Chord adds
 };
 
+// the effects in the order their sliders were once saved, as a plain list
+const LEGACY_EFFECTS = ['comp', 'octave', 'autoWah', 'wah', 'fuzz', 'overdrive', 'distortion', 'tone', 'chorus', 'phaser', 'flanger', 'vibrato', 'tremolo', 'volume', 'echo', 'reverb'];
+
 const cookiePath = () => new URL('.', window.location.href).pathname;
 
 const isRoot = (n) => Number.isInteger(n) && n >= 0 && n < 12;
@@ -43,16 +46,7 @@ const unpackDraft = (a) => (Array.isArray(a) ? { degree: a[0], alteration: a[1],
 
 /** The saved settings over the defaults (DEFAULT_SETTINGS if there are none). */
 export function loadSettings() {
-  let saved;
-  try {
-    const raw = document.cookie
-      .split('; ')
-      .find((c) => c.startsWith(`${COOKIE}=`))
-      ?.slice(COOKIE.length + 1);
-    saved = raw && JSON.parse(decodeURIComponent(raw));
-  } catch {
-    saved = null;
-  }
+  const saved = readCookie(COOKIE);
   if (!saved || saved.v !== VERSION) return DEFAULT_SETTINGS;
   const pick = (ok, value, fallback) => (ok ? value : fallback);
   const d = DEFAULT_SETTINGS;
@@ -63,10 +57,11 @@ export function loadSettings() {
     key: pick(isRoot(saved.key), saved.key, d.key),
     tuning: TUNINGS.find((t) => t.id === saved.tuning) ?? d.tuning,
     quantize: pick(QUANTIZE.some((q) => q.division === saved.quantize), saved.quantize, d.quantize),
-    // kept in EFFECTS order, to two places
+    // kept by effect id, to two places (once as a list in the order of LEGACY_EFFECTS)
     effectAmounts: Object.fromEntries(
-      EFFECTS.map((e, i) => {
-        const v = Array.isArray(saved.effectAmounts) ? saved.effectAmounts[i] : null;
+      EFFECTS.map((e) => {
+        const amounts = saved.effectAmounts;
+        const v = Array.isArray(amounts) ? amounts[LEGACY_EFFECTS.indexOf(e.id)] : amounts?.[e.id];
         return [e.id, typeof v === 'number' && v >= 0 && v <= 1 ? v : d.effectAmounts[e.id]];
       }),
     ),
@@ -96,7 +91,7 @@ export function saveSettings(s) {
     tuning: s.tuning.id,
     quantize: s.quantize,
     effects: EFFECTS.filter((e) => s.effects[e.id]).map((e) => e.id),
-    effectAmounts: EFFECTS.map((e) => Math.round((s.effectAmounts[e.id] ?? e.amount) * 100) / 100),
+    effectAmounts: Object.fromEntries(EFFECTS.map((e) => [e.id, Math.round((s.effectAmounts[e.id] ?? e.amount) * 100) / 100])),
     background: s.background,
     playOnSelect: s.playOnSelect,
     velocity: s.velocity,
@@ -105,9 +100,74 @@ export function saveSettings(s) {
     progression: s.progression.map(packChord),
     draft: packDraft(s.draft),
   });
+  writeCookie(COOKIE, value);
+}
+
+const readCookie = (name) => {
   try {
-    document.cookie = `${COOKIE}=${encodeURIComponent(value)}; max-age=${MAX_AGE}; path=${cookiePath()}; SameSite=Lax`;
+    const raw = document.cookie
+      .split('; ')
+      .find((c) => c.startsWith(`${name}=`))
+      ?.slice(name.length + 1);
+    return raw && JSON.parse(decodeURIComponent(raw));
   } catch {
-    // cookies blocked: the settings just won't survive a reload
+    return null;
+  }
+};
+
+// (a max-age of 0 deletes it)
+const writeCookie = (name, value, maxAge = MAX_AGE) => {
+  try {
+    document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${maxAge}; path=${cookiePath()}; SameSite=Lax`;
+  } catch {
+    // cookies blocked: they just won't survive a reload
+  }
+};
+
+// The progressions saved by name, in the browser's own storage on this
+// computer (they once filled a cookie: see loadSavedProgressions). GitHub Pages
+// serves every project from one origin, which shares that storage, so the key
+// names the app's folder, as the settings cookie's path does.
+const PROGRESSIONS_COOKIE = 'xr-music-progressions'; // where they were kept before
+const progressionsKey = () => `xr-music-progressions:${cookiePath()}`;
+
+// each kept as [name, key, chords (packed)]; one saved before as [name, key, scale, bpm, beats, chords] keeps just those
+const packSaved = (p) => [p.name, p.key, p.chords.map(packChord)];
+function unpackSaved(a) {
+  if (!Array.isArray(a) || typeof a[0] !== 'string' || !isRoot(a[1])) return null;
+  const packed = Array.isArray(a[2]) ? a[2] : a[5];
+  const chords = Array.isArray(packed) ? packed.map(unpackChord).filter(isChord) : [];
+  return chords.length ? { name: a[0], key: a[1], chords } : null;
+}
+
+/**
+ * The saved progressions, oldest first: each { name, key, chords }. Any still
+ * in the old cookie move into storage, and the cookie goes.
+ */
+export function loadSavedProgressions() {
+  let saved = null;
+  try {
+    const raw = localStorage.getItem(progressionsKey());
+    saved = raw && JSON.parse(raw);
+  } catch {
+    saved = null; // storage blocked, or unreadable: as if there were none
+  }
+  if (!Array.isArray(saved)) {
+    const old = readCookie(PROGRESSIONS_COOKIE);
+    if (!Array.isArray(old)) return [];
+    const list = old.map(unpackSaved).filter(Boolean);
+    if (saveSavedProgressions(list)) writeCookie(PROGRESSIONS_COOKIE, '', 0);
+    return list;
+  }
+  return saved.map(unpackSaved).filter(Boolean);
+}
+
+/** Saves the list of progressions; false, and nothing saved, if the browser's storage won't take it (blocked, or full). */
+export function saveSavedProgressions(list) {
+  try {
+    localStorage.setItem(progressionsKey(), JSON.stringify(list.map(packSaved)));
+    return true;
+  } catch {
+    return false;
   }
 }

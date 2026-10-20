@@ -19,6 +19,7 @@ import {
   keyChords,
   matchingStock,
   noteCss,
+  sameChord,
   stockChords,
 } from './music.js';
 
@@ -149,7 +150,7 @@ export const PLAY_ON_SELECT = [
 export const CHORD_PREFIX = 'chord-';
 
 /** The dropdowns' ids. */
-export const DROPDOWNS = ['instrument', 'quantize', 'playOnSelect', 'scale', 'key', 'tuning', 'bpm', 'beats', 'stock', 'degree', 'alteration', 'quality', 'modifier', 'background', 'view'];
+export const DROPDOWNS = ['instrument', 'quantize', 'playOnSelect', 'scale', 'key', 'tuning', 'bpm', 'beats', 'stock', 'load', 'degree', 'alteration', 'quality', 'modifier', 'background', 'view'];
 
 /**
  * The choices behind each dropdown on this device, in list order. App
@@ -166,6 +167,7 @@ export function dropdownChoices(env, state) {
     bpm: BPMS,
     beats: BEATS_PER_MEASURE,
     stock: STOCK_PROGRESSIONS,
+    load: state.savedProgressions ?? [],
     degree: keyChords(state.key, state.scale),
     alteration: ALTERATIONS.map((a) => a.id),
     quality: CHORD_TYPES.map((t) => t.id),
@@ -232,11 +234,12 @@ function playLabel(state) {
 export const QUEUE_COLUMNS = 4;
 
 /**
- * The Music section's second part, the progression: the transport and the tempo, a stock progression to
- * start from, the key and scale, then the chord being built (a degree's
- * triad and its root's alteration on one row, then its quality and modifier),
- * Add Chord, Clear and Play on Select on one row, then the queue: the progression's chords, four to a
- * row in a framed group. A queued chord (`queueIndex`) is dragged to reorder
+ * The Music section's second part, the progression: the transport, Play on
+ * Select, the tempo, a stock progression to start from with Clear beside it,
+ * the key and scale, then the Chord section, the chord being built (a
+ * degree's triad and its root's alteration on one row, its quality and
+ * modifier on the next, then Add Chord), then the queue: the progression's
+ * chords, four to a row in a framed group. A queued chord (`queueIndex`) is dragged to reorder
  * it, and dragged out of the panel or double-clicked to remove it (see the
  * panels). The playing (or paused) chord is lit.
  */
@@ -248,6 +251,7 @@ function progressionItems(state) {
   const quality = CHORD_TYPES.findIndex((t) => t.id === draft.type);
   const modifier = CHORD_MODIFIERS.findIndex((m) => m.id === draft.modifier);
   const queue = { group: 'queue', compact: true, cols: QUEUE_COLUMNS };
+  const chordOpen = Boolean(state.sections?.chord);
   const root = { row: 'root', small: true };
   const shape = { row: 'shape', small: true };
   const transport = { row: 'transport', small: true };
@@ -264,6 +268,20 @@ function progressionItems(state) {
       ...transport,
     },
     { id: 'stop', label: 'Stop', icon: 'stop', disabled: !player.started, ...transport },
+    // what's played as a chord is selected or landed on
+    {
+      id: 'playOnSelect',
+      label: `Play on Select: ${PLAY_ON_SELECT.find((p) => p.id === state.playOnSelect).name}`,
+      dropdown: dropdown(
+        state,
+        'playOnSelect',
+        PLAY_ON_SELECT.map((p) => p.name),
+        PLAY_ON_SELECT.findIndex((p) => p.id === state.playOnSelect),
+        undefined,
+        PLAY_ON_SELECT.length,
+      ),
+      title: 'Plays a chord (or just its root) when you click or trigger it in the queue, and as the progression lands on it',
+    },
     {
       id: 'bpm',
       label: `Beats per Minute: ${state.bpm}`,
@@ -278,13 +296,16 @@ function progressionItems(state) {
       ...tempo,
       dropdown: dropdown(state, 'beats', BEATS_PER_MEASURE.map(String), BEATS_PER_MEASURE.indexOf(state.beatsPerMeasure)),
     },
-    // a stock progression, in the key: named while the queue still matches it
+    // a stock progression, in the key: named while the queue still matches it; beside it, Clear
     {
       id: 'stock',
       label: `Stock Progression: ${stock < 0 ? '—' : STOCK_PROGRESSIONS[stock].name}`,
       icon: 'progression',
+      row: 'stock',
+      small: true,
       dropdown: dropdown(state, 'stock', STOCK_PROGRESSIONS.map((s) => s.name), stock, undefined, 3),
     },
+    { id: 'clearProgression', label: 'Clear', icon: 'remove', row: 'stock', small: true, disabled: !progression.length },
     // the key and scale the degree triads come from (and the board shows)
     {
       id: 'key',
@@ -302,60 +323,46 @@ function progressionItems(state) {
       ...keyScale,
       dropdown: dropdown(state, 'scale', SCALES.map((sc) => sc.name), SCALES.indexOf(state.scale)),
     },
-    {
-      id: 'degree',
-      label: `Degree Triad: ${degree < 0 ? '—' : degrees[degree].label}`,
-      icon: 'scale',
-      ...root,
-      dropdown: dropdown(state, 'degree', degrees.map((d) => d.label), degree, undefined, 4),
-    },
-    // beside it, the root flattened or sharpened
-    {
-      id: 'alteration',
-      label: `Alteration: ${ALTERATIONS[alteration].name}`,
-      ...root,
-      dropdown: dropdown(state, 'alteration', ALTERATIONS.map((a) => a.name), alteration, undefined, ALTERATIONS.length),
-    },
-    // the chord's shape, side by side without icons
-    {
-      id: 'quality',
-      label: `Quality: ${CHORD_TYPES[quality].name}`,
-      ...shape,
-      dropdown: dropdown(state, 'quality', CHORD_TYPES.map((t) => t.name), quality, undefined, CHORD_TYPES.length),
-    },
-    {
-      id: 'modifier',
-      label: `Modifier: ${CHORD_MODIFIERS[modifier].name}`,
-      ...shape,
-      dropdown: dropdown(state, 'modifier', CHORD_MODIFIERS.map((m) => m.name), modifier, undefined, CHORD_MODIFIERS.length),
-    },
-    {
-      id: 'addChord',
-      label: `Add Chord: ${chordName(builtChord(draft, state.key))}`,
-      // sized for a typical chord: a rare long name is cut short rather than widening the panel
-      sizeLabel: 'Add Chord: C#m7',
-      icon: 'add',
-      row: 'add',
-      span: 1.9,
-      small: true,
-    },
-    { id: 'clearProgression', label: 'Clear', icon: 'remove', row: 'add', small: true, disabled: !progression.length },
-    {
-      id: 'playOnSelect',
-      label: `Play on Select: ${PLAY_ON_SELECT.find((p) => p.id === state.playOnSelect).name}`,
-      dropdown: dropdown(
-        state,
-        'playOnSelect',
-        PLAY_ON_SELECT.map((p) => p.name),
-        PLAY_ON_SELECT.findIndex((p) => p.id === state.playOnSelect),
-        undefined,
-        PLAY_ON_SELECT.length,
-      ),
-      title: 'Plays a chord (or just its root) when you click or trigger it in the queue, and as the progression lands on it',
-      row: 'add',
-      span: 2.75,
-      small: true,
-    },
+    // the chord being built, in a section of its own
+    { id: `${SECTION_PREFIX}chord`, label: 'Chord', icon: 'chord', section: { open: chordOpen } },
+    ...(chordOpen
+      ? [
+          {
+            id: 'degree',
+            label: `Degree Triad: ${degree < 0 ? '—' : degrees[degree].label}`,
+            icon: 'scale',
+            ...root,
+            dropdown: dropdown(state, 'degree', degrees.map((d) => d.label), degree, undefined, 4),
+          },
+          // beside it, the root flattened or sharpened
+          {
+            id: 'alteration',
+            label: `Alteration: ${ALTERATIONS[alteration].name}`,
+            ...root,
+            dropdown: dropdown(state, 'alteration', ALTERATIONS.map((a) => a.name), alteration, undefined, ALTERATIONS.length),
+          },
+          // the chord's shape, side by side without icons
+          {
+            id: 'quality',
+            label: `Quality: ${CHORD_TYPES[quality].name}`,
+            ...shape,
+            dropdown: dropdown(state, 'quality', CHORD_TYPES.map((t) => t.name), quality, undefined, CHORD_TYPES.length),
+          },
+          {
+            id: 'modifier',
+            label: `Modifier: ${CHORD_MODIFIERS[modifier].name}`,
+            ...shape,
+            dropdown: dropdown(state, 'modifier', CHORD_MODIFIERS.map((m) => m.name), modifier, undefined, CHORD_MODIFIERS.length),
+          },
+          {
+            id: 'addChord',
+            label: `Add Chord: ${chordName(builtChord(draft, state.key))}`,
+            // sized for a typical chord: a rare long name is cut short rather than widening the panel
+            sizeLabel: 'Add Chord: C#m7',
+            icon: 'add',
+          },
+        ].map((item) => ({ ...item, indent: 1 }))
+      : []),
     ...(progression.length
       ? progression.map((chord, i) => ({
           ...queue,
@@ -374,20 +381,64 @@ function progressionItems(state) {
           queueIndex: i,
         }))
       : [{ ...queue, id: 'queue-empty', label: 'No chords yet', cols: 1, disabled: true }]),
+    ...savedItems(state),
   ];
 }
+
+/** The longest saved progression's name the panels make room for: a longer one is cut short. */
+const SAVED_NAME_ROOM = 'Load: Progression 12';
+
+/**
+ * Beneath the queue, Save and Load. Save asks for a name (`state.naming`, the
+ * name being typed): its field, then Save and Cancel, in their place. Load
+ * lists the saved progressions by name, and is named by the one the queue
+ * still matches.
+ */
+function savedItems(state) {
+  const saved = state.savedProgressions ?? [];
+  const saving = { row: 'saved', small: true };
+  if (state.naming != null)
+    return [
+      { id: 'progressionName', label: `Name: ${state.naming}`, input: { value: state.naming, placeholder: 'Name' }, span: 2, ...saving },
+      { id: 'confirmSave', label: 'Save', icon: 'save', disabled: !state.naming.trim(), ...saving },
+      { id: 'cancelSave', label: 'Cancel', ...saving },
+    ];
+  const current = saved.findIndex((p) => sameChords(p.chords, state.progression));
+  return [
+    {
+      id: 'saveProgression',
+      label: 'Save',
+      icon: 'save',
+      title: 'Saves the progression and its key by name (the same name replaces it)',
+      disabled: !state.progression.length,
+      ...saving,
+    },
+    {
+      id: 'load',
+      label: `Load: ${current < 0 ? '—' : saved[current].name}`,
+      sizeLabel: SAVED_NAME_ROOM,
+      icon: 'load',
+      disabled: !saved.length,
+      ...saving,
+      // a saved progression is deleted by dragging it out of the panel (see the windowed panel)
+      dropdown: { ...dropdown(state, 'load', saved.map((p) => p.name), current, undefined, 3), removable: true },
+    },
+  ];
+}
+
+const sameChords = (a, b) => a.length === b.length && a.every((chord, i) => sameChord(chord, b[i]));
 
 /**
  * The items laid out: blocks of consecutive items in the same group (or in
  * none) and equally indented, each a list of rows, where consecutive items
  * with the same `row` share one (see rowSpans). Each block: { group (or
- * null), indent, rows }.
+ * null), indent (its depth: 0 not indented), rows }.
  */
 export function menuBlocks(items) {
   const blocks = [];
   for (const item of items) {
     const group = item.group ?? null;
-    const indent = Boolean(item.indent);
+    const indent = item.indent ?? 0;
     let block = blocks.at(-1);
     if (!block || block.group !== group || block.indent !== indent) blocks.push((block = { group, indent, rows: [] }));
     const row = block.rows.at(-1);
@@ -530,7 +581,8 @@ const SECTIONS = [
  * with a chevron at the far right, like a dropdown's. `dropdown`: { open,
  * options: [{ id, label, selected }] }, drawn with a chevron at the far
  * right and, when open, its options beneath.
- * `row` / `span` / `cols` / `group`: see menuBlocks and rowSpans. `indent`: in an open section, set in from its header.
+ * `row` / `span` / `cols` / `group`: see menuBlocks and rowSpans. `indent`: how many open sections it's in, each
+ * setting it in a step from its header.
  * `sizeLabel`: the label the panels size for, if not `label`. `small`: a smaller font, for
  * buttons sharing a row; `compact`: just the label, centred; `current`: lit,
  * as the progression's playing chord: in `dim`, split into `beats`, with
@@ -540,13 +592,16 @@ const SECTIONS = [
 export function menuItems(state, env) {
   return SECTIONS.flatMap(({ id, label, icon, items }) => {
     const open = Boolean(state.sections?.[id]);
-    // its buttons indented beneath it, as a dropdown's choices are
-    return [{ id: `${SECTION_PREFIX}${id}`, label, icon, section: { open } }, ...(open ? items(state, env).map((item) => ({ ...item, indent: true })) : [])];
+    // its buttons indented beneath it, as a dropdown's choices are (a section within it, a step further)
+    return [
+      { id: `${SECTION_PREFIX}${id}`, label, icon, section: { open } },
+      ...(open ? items(state, env).map((item) => ({ ...item, indent: (item.indent ?? 0) + 1 })) : []),
+    ];
   });
 }
 
-/** Every section open. */
-const ALL_OPEN = Object.fromEntries(SECTIONS.map(({ id }) => [id, true]));
+/** Every section open, and the Chord section within Music. */
+const ALL_OPEN = { ...Object.fromEntries(SECTIONS.map(({ id }) => [id, true])), chord: true };
 
 /**
  * The most buttons there can be (the progression's chords aside), every

@@ -21,13 +21,17 @@ import { playClick } from './audio.js';
 // it docks there, pointing forward from it; let go by the mouth, it docks
 // there, flat in front of it (and goes where the head goes); let go on the
 // ToolFrame's pick, it goes back in the toolbox. The first pick starts on the right
-// controller, the panel on the left. A double tap of a grip docks the panel,
+// controller, the panel on the left. A double tap of a grip docks a panel,
 // or a pick, on that controller, if it's touching it or pointing at it (off
 // the other controller, if it was there; a pick already docked here is let
 // go where it is to make way). Touching or pointing at neither, a double tap
 // lets go of whatever is docked on that controller, leaving it where it is.
-// A third tap soon after docks the panel on that controller if it isn't docked
-// (free in the room, or held), flying there from where it is.
+// A third tap soon after docks every panel that isn't docked (free in the
+// room, or held) on that controller, flying there from where it is.
+//
+// There are two panels, the menu and the View panel (see XRMenuPanel.jsx),
+// and each docks, is taken and is let go on its own. Docked on one
+// controller, they stand stacked, the menu above the View panel.
 //
 // While a grip holds the panel, a pick or a frame (in that hand alone), its
 // thumbstick pushes it away along the controller's ray (up) or reels it in
@@ -94,6 +98,7 @@ const GROW_RATE = 12; // per second
 const DOCK_ANCHOR = new THREE.Vector3(0, 0.05, 0.02);
 const DOCK_TILT = -0.5; // radians about the controller's X: the top leans forward
 const DOCK_SCALE = 0.5;
+const STACK_GAP = 0.008; // m between panels stacked on a controller
 const DOUBLE_TAP = 0.35; // seconds between a grip's short tap and its next press, for a double tap
 const TAP = 0.3; // seconds: a grip pressed no longer than this is a tap
 const FLY = 0.4; // seconds a triple tap's panel takes to fly to its dock
@@ -152,17 +157,24 @@ function touchesPanel(panel, world, reach) {
   return Math.abs(_local.z) < r && Math.abs(_local.x) < width / 2 + r && Math.abs(_local.y) < height / 2 + r;
 }
 
+/** How tall the panel stands docked on a controller (m): what it shows now, at DOCK_SCALE. */
+function dockedHeight(panel) {
+  return panel.children.find((o) => o.isMesh).geometry.parameters.height * DOCK_SCALE;
+}
+
 /**
  * The panel's pose docked on a controller, in the controller's target-ray
  * space: the bottom middle of what it shows now (a page, or just the gear) at
- * DOCK_ANCHOR, tilted by DOCK_TILT, at DOCK_SCALE.
+ * DOCK_ANCHOR, `lift` metres up its face (above the panels stacked under it),
+ * tilted by DOCK_TILT, at DOCK_SCALE.
  */
-function controllerDockOffset(panel) {
+function controllerDockOffset(panel, lift = 0) {
   const mesh = panel.children.find((o) => o.isMesh);
   const { height } = mesh.geometry.parameters;
   return _dockPose
     .makeTranslation(DOCK_ANCHOR.x, DOCK_ANCHOR.y, DOCK_ANCHOR.z)
     .multiply(_tilt)
+    .multiply(_step.makeTranslation(0, lift, 0))
     .multiply(_step.makeScale(DOCK_SCALE, DOCK_SCALE, DOCK_SCALE))
     .multiply(_step.makeTranslation(-mesh.position.x, -(mesh.position.y - height / 2), 0));
 }
@@ -225,8 +237,8 @@ function frameDockOffset(board, strings, panel) {
 }
 
 /**
- * Grip controls for the Fretboard, the side frames, the picks and the menu
- * panel. `board`, `chordFrame`, `toolFrame`, `filterFrame`, `menu` and `origin` (the
+ * Grip controls for the Fretboard, the side frames, the picks and the
+ * panels. `board`, `chordFrame`, `toolFrame`, `filterFrame` and `origin` (the
  * XROrigin the controllers are tracked relative to) are refs; `strings` is
  * the Fretboard's row count, for the NeckFrame's size. `picks.current` is a
  * Map of id -> { object, dock }, where `dock` is { to: 'left' | 'right' |
@@ -245,9 +257,11 @@ function frameDockOffset(board, strings, panel) {
  * `effectSwitches` (effect id -> true), what each free hand's ray points at
  * into `handles.current.aiming`, and the notes being bent into
  * `handles.current.bending` (cell -> pull) and `bendingHands` (mallet: a hand
- * or 'pick:<id>' -> its cells). `menuDock.current.to` is where the panel is
- * docked: 'left', 'right', 'frame' or null (free), and `placed` whether the
- * player has moved it; the panel must be a direct child of the XROrigin.
+ * or 'pick:<id>' -> its cells). `panels` are [{ id, object, dock }], stacked
+ * on a controller in that order from the top, with `object` the panel's ref
+ * (a direct child of the XROrigin) and `dock.current.to` where it's docked:
+ * 'left', 'right', 'frame' or null (free), and `placed` whether the player
+ * has moved it.
  */
 export function useControllerGrips({
   board,
@@ -261,8 +275,7 @@ export function useControllerGrips({
   spawnPick,
   removePick,
   onChord,
-  menu,
-  menuDock,
+  panels,
   origin,
   strings,
   handles,
@@ -301,8 +314,9 @@ export function useControllerGrips({
     const controllers = readControllers(frame, referenceSpace, origin.current);
     const fretboard = board.current;
     const objects = { board: fretboard, chords: chordFrame.current, tools: toolFrame.current, filter: filterFrame.current };
-    const panel = menu.current;
-    const dock = menuDock.current;
+    const panelList = panels.filter((p) => p.object.current).map((p) => ({ id: p.id, object: p.object.current, dock: p.dock.current }));
+    const panelById = new Map(panelList.map((p) => [p.id, p]));
+    const shownPanels = panelList.filter((p) => isShown(p.object));
     const pickList = [...picks.current].filter(([, p]) => p.object).map(([id, p]) => ({ id, object: p.object, dock: p.dock }));
     const pickById = new Map(pickList.map((p) => [p.id, p]));
     const dockedOn = (hand) => pickList.find((p) => p.dock.to === hand) ?? null;
@@ -312,7 +326,7 @@ export function useControllerGrips({
     const frameTouching = Object.fromEntries(SIDE_FRAMES.map((target) => [target, {}])); // side frame -> hand -> true
     const bending = {}; // cell index -> how far it's pulled along the frets, in board metres
     const bendingHands = {}; // hand -> the cell it's bending
-    const aiming = {}; // hand -> what its ray would grab: 'menu' | 'pick' | a frame
+    const aiming = {}; // hand -> what its ray would grab: 'menu' (a panel) | 'pick' | a frame
     const toolTouching = {}; // hand -> its tip is on, or its ray at, the ToolFrame's pick
     const toolPick = objects.tools?.getObjectByName('ToolPick');
     const { knobs, switches } = effectControls(objects.filter);
@@ -321,25 +335,25 @@ export function useControllerGrips({
     const aimHits = [];
     const stickBusy = {}; // hand -> its grip holds something its stick pushes and pulls
 
-    // the panel starts on the left controller and the first pick on the right (or whichever there is), until moved
-    if (panel && !dock.to && !dock.placed && (controllers.left || controllers.right)) dock.to = controllers.left ? 'left' : 'right';
+    // the panels start on the left controller and the first pick on the right (or whichever there is), until moved
+    for (const { dock } of panelList) if (!dock.to && !dock.placed && (controllers.left || controllers.right)) dock.to = controllers.left ? 'left' : 'right';
     for (const p of pickList) if (!p.dock.to && !p.dock.placed && (controllers.left || controllers.right)) p.dock.to = controllers.right ? 'right' : 'left';
 
-    /** Whatever grip has hold of `target` (and pick `id`) lets go of it, taking nothing more until it's let go. */
+    /** Whatever grip has hold of `target` (and pick or panel `id`) lets go of it, taking nothing more until it's let go. */
     const letGo = (target, id) => {
       for (const h of HANDS) if (grabs.current[h]?.target === target && grabs.current[h].id === id) grabs.current[h] = { target: 'none' };
     };
 
     /**
      * A double tap of `hand`'s grip, touching or pointing at `target` ({
-     * target: 'menu' } or { target: 'pick', id }, or null): docks that on
-     * this controller (a pick docked here already is let go where it is). At
-     * nothing, it lets go of whatever is docked on this controller, where it is.
+     * target: 'menu' | 'pick', id }, or null): docks that on this controller
+     * (a pick docked here already is let go where it is). At nothing, it lets
+     * go of whatever is docked on this controller, where it is.
      */
     const doubleTap = (hand, c, target) => {
-      if (target?.target === 'menu' && panel) {
-        letGo('menu');
-        Object.assign(dock, { to: hand, placed: true });
+      if (target?.target === 'menu' && panelById.has(target.id)) {
+        letGo('menu', target.id);
+        Object.assign(panelById.get(target.id).dock, { to: hand, placed: true });
       } else if (target?.target === 'pick' && pickById.has(target.id)) {
         const p = pickById.get(target.id);
         const mine = dockedOn(hand);
@@ -348,8 +362,9 @@ export function useControllerGrips({
         Object.assign(p.dock, { to: hand, placed: true, scale: _scale.setFromMatrixScale(p.object.matrixWorld).x });
       } else {
         const docked = dockedOn(hand);
-        if (dock.to !== hand && !docked) return;
-        if (dock.to === hand) Object.assign(dock, { to: null, placed: true });
+        const panelsHere = panelList.filter((p) => p.dock.to === hand);
+        if (!panelsHere.length && !docked) return;
+        for (const p of panelsHere) Object.assign(p.dock, { to: null, placed: true });
         if (docked) Object.assign(docked.dock, { to: null, placed: true });
         playClick('detach');
         pulse(c.gamepad, DETACH_PULSE);
@@ -359,12 +374,15 @@ export function useControllerGrips({
       pulse(c.gamepad, DOCK_PULSE);
     };
 
-    /** A triple tap of `hand`'s grip: the panel, if it isn't docked (free, or held), docks on this controller, flying there. */
+    /** A triple tap of `hand`'s grip: every panel that isn't docked (free, or held) docks on this controller, flying there. */
     const tripleTap = (hand, c) => {
-      if (!panel || dock.to) return;
-      letGo('menu');
-      panel.updateMatrixWorld();
-      Object.assign(dock, { to: hand, placed: true, fly: { from: panel.matrixWorld.clone(), t0: performance.now() / 1000 } });
+      const free = panelList.filter((p) => !p.dock.to);
+      if (!free.length) return;
+      for (const p of free) {
+        letGo('menu', p.id);
+        p.object.updateMatrixWorld();
+        Object.assign(p.dock, { to: hand, placed: true, fly: { from: p.object.matrixWorld.clone(), t0: performance.now() / 1000 } });
+      }
       playClick('attach');
       pulse(c.gamepad, DOCK_PULSE);
     };
@@ -373,9 +391,9 @@ export function useControllerGrips({
     const aim = (hand, c) => {
       raycaster.ray.copy(c.ray);
       const candidates = [];
-      if (panel && isShown(panel)) {
-        const [hit] = raycaster.intersectObject(panel, true);
-        if (hit) candidates.push({ target: 'menu', hit });
+      for (const p of shownPanels) {
+        const [hit] = raycaster.intersectObject(p.object, true);
+        if (hit) candidates.push({ target: 'menu', id: p.id, hit });
       }
       // picks' meshes opt out of pointer events, so they're tested directly; not one docked on this controller
       for (const p of pickList) {
@@ -404,8 +422,8 @@ export function useControllerGrips({
     const triggerAim = (c) => {
       raycaster.ray.copy(c.ray);
       const candidates = [];
-      if (panel && isShown(panel)) {
-        const [hit] = raycaster.intersectObject(panel, true);
+      for (const p of shownPanels) {
+        const [hit] = raycaster.intersectObject(p.object, true);
         if (hit) candidates.push({ target: 'menu', hit });
       }
       const nodes = objects.chords?.getObjectByName('ChordNodes');
@@ -456,8 +474,8 @@ export function useControllerGrips({
       hold.step = step;
     };
 
-    /** Where the held panel would dock if let go now: the other hand, 'frame' or null. */
-    const dockZone = (hand) => {
+    /** Where held `panel` would dock if let go now: the other hand, 'frame' or null. */
+    const dockZone = (hand, panel) => {
       _centre.setFromMatrixPosition(panel.matrixWorld);
       const other = hand === 'left' ? 'right' : 'left';
       if (controllers[other]?.position.distanceTo(_centre) < DOCK_REACH) return other;
@@ -544,14 +562,13 @@ export function useControllerGrips({
         tripleTap(hand, c);
         grab = grabs.current[hand] = { target: 'none' };
       } else if (doubleTapped) {
-        // what it docks: a pick or the panel it's touching (not the panel docked here), else one it points at
-        const panelTouched =
-          panel && isShown(panel) && dock.to !== hand && touchesPanel(panel, _tip, CONTROLLER_RADIUS);
+        // what it docks: a pick or a panel it's touching (not one docked here), else one it points at
+        const panelTouched = shownPanels.find((p) => p.dock.to !== hand && touchesPanel(p.object, _tip, CONTROLLER_RADIUS));
         const target = pickTouched
           ? { target: 'pick', id: pickTouched.id }
           : panelTouched
-            ? { target: 'menu' }
-            : aimed?.target === 'pick' || (aimed?.target === 'menu' && dock.to !== hand)
+            ? { target: 'menu', id: panelTouched.id }
+            : aimed?.target === 'pick' || (aimed?.target === 'menu' && panelById.get(aimed.id).dock.to !== hand)
               ? aimed
               : null;
         doubleTap(hand, c, target);
@@ -574,8 +591,10 @@ export function useControllerGrips({
             playClick('attach');
           }
         }
-        // letting go of the panel docks it, if it was within reach of a dock
-        if (c && grab?.target === 'menu' && panel && grab.zone) {
+        // letting go of a panel docks it, if it was within reach of a dock
+        const heldPanel = grab?.target === 'menu' ? panelById.get(grab.id) : null;
+        if (c && heldPanel && grab.zone) {
+          const { object: panel, dock } = heldPanel;
           if (grab.zone === 'frame') {
             fretboard.updateWorldMatrix(true, false);
             dock.offset = frameDockOffset(fretboard, strings, panel);
@@ -589,7 +608,6 @@ export function useControllerGrips({
         delete grabs.current[hand];
         continue;
       }
-      const shown = panel && isShown(panel);
       // touching comes first: a pick, the notes this controller's docked pick touches, the panel (not from the
       // controller it's docked on, which is always close to it), a note, a frame; then whatever the ray points at
       let pickNotes = [];
@@ -598,15 +616,14 @@ export function useControllerGrips({
         const { points, radius } = pickPoints(ownPick.object);
         pickNotes = touchedCellsByPoints(fretboard, points, radius, c.trigger);
       }
-      const menuTouched =
-        !grab && shown && dock.to !== hand && touchesPanel(panel, _tip, CONTROLLER_RADIUS);
+      const menuTouched = grab ? null : shownPanels.find((p) => p.dock.to !== hand && touchesPanel(p.object, _tip, CONTROLLER_RADIUS));
       const noteTouched = !grab && fretboard ? touchedCells(fretboard, _tip, CONTROLLER_RADIUS, c.trigger) : [];
       const neckTouched = !grab && fretboard && touchesFrame(fretboard, strings, _tip, CONTROLLER_RADIUS);
       let take = null;
       if (!grab) {
         if (pickTouched) take = { target: 'pick', id: pickTouched.id };
         else if (pickNotes.length) take = { target: 'note', indices: pickNotes, byPick: ownPick.id };
-        else if (menuTouched) take = { target: 'menu', point: _tip };
+        else if (menuTouched) take = { target: 'menu', id: menuTouched.id, point: _tip };
         else if (noteTouched.length) take = { target: 'note', indices: noteTouched.slice(0, 1) };
         else if (knobTouched) take = { target: 'knob', effect: knobTouched };
         else if (neckTouched) take = { target: 'board' };
@@ -625,6 +642,7 @@ export function useControllerGrips({
       }
       if (!grab) {
         if (take?.target === 'menu') {
+          const { object: panel, dock } = panelById.get(take.id);
           if (dock.to) {
             playClick('detach');
             pulse(c.gamepad, DETACH_PULSE);
@@ -633,10 +651,11 @@ export function useControllerGrips({
           dock.placed = true;
           dock.fly = null; // (caught in flight)
           // the other hand lets go of it, if it had it
-          for (const other of HANDS) if (grabs.current[other]?.target === 'menu') grabs.current[other] = { target: 'none' };
+          letGo('menu', take.id);
           const gripInverse = c.grip.clone().invert();
           grab = {
             target: 'menu',
+            id: take.id,
             offset: gripInverse.clone().multiply(panel.matrixWorld),
             point: take.point.clone().applyMatrix4(gripInverse), // grows about where it was taken, in grip space
             size: 1,
@@ -680,7 +699,8 @@ export function useControllerGrips({
         const step = Math.trunc(pulled / SPACING);
         if (step !== grab.step) pulse(c.gamepad, BEND_TICK);
         grab.step = step;
-      } else if (grab.target === 'menu' && panel) {
+      } else if (grab.target === 'menu' && panelById.has(grab.id)) {
+        const panel = panelById.get(grab.id).object;
         // keeps its pose in the hand, easing to full size about the point it was taken by; the stick moves both along the ray
         const u = pushStep(c, grab.point.length(), dt);
         if (u) {
@@ -693,7 +713,7 @@ export function useControllerGrips({
         _offset.multiply(_step.makeTranslation(-x, -y, -z)).multiply(grab.offset);
         carry(panel, c.grip, _offset);
         panel.updateMatrixWorld();
-        const zone = dockZone(hand);
+        const zone = dockZone(hand, panel);
         if (zone && zone !== grab.zone) pulse(zone === 'frame' ? c.gamepad : controllers[zone].gamepad, ZONE_TICK);
         grab.zone = zone;
       }
@@ -746,26 +766,30 @@ export function useControllerGrips({
       }
     }
 
-    // a docked panel follows its dock, after the Fretboard has moved; on an untracked controller it hides
-    if (!panel) return;
-    panel.visible = true;
-    if (dock.to === 'frame' && fretboard) {
-      fretboard.updateWorldMatrix(true, false);
-      carry(panel, fretboard.matrixWorld, dock.offset);
-    } else if (dock.to === 'left' || dock.to === 'right') {
-      const c = controllers[dock.to];
-      panel.visible = Boolean(c);
-      if (c) carry(panel, c.rayMatrix, controllerDockOffset(panel));
-      // flying there after a triple tap: between where it set off and its dock, eased
-      const t = dock.fly && c ? (now - dock.fly.t0) / FLY : 1;
-      if (t < 1) {
-        const k = THREE.MathUtils.smootherstep(t, 0, 1);
-        panel.updateMatrixWorld();
-        dock.fly.from.decompose(_flyFrom.position, _flyFrom.quaternion, _flyFrom.scale);
-        panel.matrixWorld.decompose(_flyTo.position, _flyTo.quaternion, _flyTo.scale);
-        _flight.compose(_flyFrom.position.lerp(_flyTo.position, k), _flyFrom.quaternion.slerp(_flyTo.quaternion, k), _flyFrom.scale.lerp(_flyTo.scale, k));
-        carry(panel, _noMatrix, _flight);
-      } else dock.fly = null;
+    // a docked panel follows its dock, after the Fretboard has moved; on an untracked controller it hides. On a
+    // controller they stack upward from the last
+    const lift = { left: 0, right: 0 };
+    for (const { object: panel, dock } of [...panelList].reverse()) {
+      panel.visible = true;
+      if (dock.to === 'frame' && fretboard) {
+        fretboard.updateWorldMatrix(true, false);
+        carry(panel, fretboard.matrixWorld, dock.offset);
+      } else if (dock.to === 'left' || dock.to === 'right') {
+        const c = controllers[dock.to];
+        panel.visible = Boolean(c);
+        if (c) carry(panel, c.rayMatrix, controllerDockOffset(panel, lift[dock.to]));
+        lift[dock.to] += dockedHeight(panel) + STACK_GAP;
+        // flying there after a triple tap: between where it set off and its dock, eased
+        const t = dock.fly && c ? (now - dock.fly.t0) / FLY : 1;
+        if (t < 1) {
+          const k = THREE.MathUtils.smootherstep(t, 0, 1);
+          panel.updateMatrixWorld();
+          dock.fly.from.decompose(_flyFrom.position, _flyFrom.quaternion, _flyFrom.scale);
+          panel.matrixWorld.decompose(_flyTo.position, _flyTo.quaternion, _flyTo.scale);
+          _flight.compose(_flyFrom.position.lerp(_flyTo.position, k), _flyFrom.quaternion.slerp(_flyTo.quaternion, k), _flyFrom.scale.lerp(_flyTo.scale, k));
+          carry(panel, _noMatrix, _flight);
+        } else dock.fly = null;
+      }
     }
   });
 }

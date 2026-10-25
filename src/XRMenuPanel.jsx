@@ -735,3 +735,86 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     </group>
   );
 }
+
+// The View panel: one button, the monitor, that leaves XR for the Normal view, as grid-game-threejs's does. It's
+// as big as the closed menu (the panel around its gear), drawn the same way, and docks, stacked under the menu, on
+// the left controller at first (see Grab.jsx).
+const VIEW_KEY = 'view:normal';
+const VIEW_SIZE = { w: 2 * PAD + TOGGLE, h: 2 * (TITLE_Y - TOGGLE / 2) + TOGGLE }; // canvas px: the closed menu's
+
+/** The View panel; `onSelect()` leaves XR. */
+export function XRViewPanel({ onSelect, groupRef, ...groupProps }) {
+  const mesh = useRef(null);
+  const slab = useRef(null);
+  const [hot, setHot] = useState(false);
+  const [gazed, setGazed] = useState(false);
+  const [iconsLoaded, setIconsLoaded] = useState(0);
+  const { w, h } = VIEW_SIZE;
+  const canvas = useMemo(() => Object.assign(document.createElement('canvas'), { width: w, height: h }), [w, h]);
+  const texture = useMemo(() => {
+    const t = new THREE.CanvasTexture(canvas);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  }, [canvas]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  const slabGeometryMemo = useMemo(() => slabGeometry(w, h), [w, h]);
+  useEffect(() => () => slabGeometryMemo.dispose(), [slabGeometryMemo]);
+  useFrame(() => {
+    const s = slab.current;
+    if (!s) return;
+    const scale = s.parent.getWorldScale(_worldScale).x || 1;
+    const d = SLAB_DEPTH / scale;
+    s.scale.set(1, 1, d);
+    s.position.z = -d - 0.0003 / scale;
+  });
+  const bounds = useMemo(() => ({ left: (-w / 2) * PX_M, right: (w / 2) * PX_M, top: (h / 2) * PX_M, bottom: (-h / 2) * PX_M }), [w, h]);
+  const button = { x: PAD, y: TITLE_Y - TOGGLE / 2, w: TOGGLE, h: TOGGLE };
+
+  useEffect(() => {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    roundRect(ctx, 4, 4, w - 8, h - 8, 40);
+    ctx.fillStyle = 'rgba(12, 16, 28, 0.9)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    drawButtonFrame(ctx, button, { hot: hot || gazed });
+    const icon = iconImage('monitor', () => setIconsLoaded((n) => n + 1));
+    if (icon.complete && icon.naturalWidth)
+      ctx.drawImage(icon, button.x + (button.w - GEAR_ICON) / 2, button.y + (button.h - GEAR_ICON) / 2, GEAR_ICON, GEAR_ICON);
+    texture.needsUpdate = true;
+    // (`button` is fixed)
+  }, [canvas, texture, w, h, hot, gazed, iconsLoaded]);
+
+  const onButton = (e) => {
+    const uv = e.uv;
+    if (!uv) return false;
+    const px = uv.x * w;
+    const py = (1 - uv.y) * h;
+    return px >= button.x && px <= button.x + button.w && py >= button.y && py <= button.y + button.h;
+  };
+  useGazeTarget(mesh, (key) => key && onSelect?.(), (key) => setGazed(Boolean(key)), (hit) => (onButton(hit) ? VIEW_KEY : null));
+
+  return (
+    <group ref={groupRef} userData={{ bounds }} {...groupProps}>
+      <mesh
+        ref={mesh}
+        onPointerMove={(e) => setHot(onButton(e))}
+        onPointerOut={() => setHot(false)}
+        onClick={(e) => {
+          if (!onButton(e)) return;
+          e.stopPropagation();
+          onSelect?.();
+        }}
+      >
+        <planeGeometry args={[w * PX_M, h * PX_M]} />
+        <meshBasicMaterial map={texture} transparent depthWrite={false} toneMapped={false} side={THREE.DoubleSide} />
+        <mesh ref={slab} geometry={slabGeometryMemo} renderOrder={-1} raycast={() => null}>
+          <meshStandardMaterial color={0x1c2230} roughness={0.55} metalness={0.15} transparent opacity={0.8} depthWrite={false} />
+        </mesh>
+      </mesh>
+    </group>
+  );
+}

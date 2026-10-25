@@ -1,4 +1,4 @@
-import { Component, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Component, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useLoader, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { IfInSessionMode, XROrigin, useXR, useXRControllerLocomotion } from '@react-three/xr';
@@ -8,7 +8,7 @@ import { GazePlay, TouchPlay } from './Touch.jsx';
 import { useControllerGrips } from './Grab.jsx';
 import { Pick } from './Pick.jsx';
 import { ChordFrame, FilterFrame, ToolFrame, chordFrameOffset, filterFrameOffsetY, toolFrameOffset } from './SideFrames.jsx';
-import { PX_M, XRMenuPanel } from './XRMenuPanel.jsx';
+import { PX_M, XRMenuPanel, XRViewPanel } from './XRMenuPanel.jsx';
 import { EYE_SEPARATION, SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
 import { CameraBackground, CardboardRig } from './Cardboard.jsx';
@@ -37,6 +37,7 @@ export const ORBIT_TARGET = [-0.5, 1, -0.5];
 // the player's left, turned toward them, and travels with the player. Constants, so a re-render never undoes a move.
 const MENU_POSITION = [-0.65, 1.05, 0.05];
 const MENU_ROTATION = [0, 0.9, 0];
+const VIEW_POSITION = [-0.65, 0.68, 0.05]; // the View panel, under it
 // a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
 const PHONE_STEREO_MENU_SCALE = 1.5;
 // The first pick (XR: Headset only) starts docked on the right controller;
@@ -342,6 +343,16 @@ export default function Scene({
   const toolFrame = useRef(null);
   const filterFrame = useRef(null);
   const menuDock = useRef({ to: null, placed: false }); // where the panel is docked: see Grab.jsx
+  const viewPanel = useRef(null);
+  const viewDock = useRef({ to: null, placed: false }); // ...and the View panel
+  // stacked on a controller in this order, top to bottom
+  const panels = useMemo(
+    () => [
+      { id: 'menu', object: menuPanel, dock: menuDock, position: MENU_POSITION },
+      { id: 'view', object: viewPanel, dock: viewDock, position: VIEW_POSITION },
+    ],
+    [],
+  );
   // the picks: id -> { object, dock, instrument }, where each is docked (see Grab.jsx) and what it plays;
   // and [{ id, instrument }], to draw them
   const currentInstrument = useRef(state.instrument);
@@ -422,7 +433,6 @@ export default function Scene({
   // controllers (to hand tracking) with a pick docked, leaves one pick, where it started, and frees a
   // controller-docked panel
   useEffect(() => {
-    const dock = menuDock.current;
     const docked = [...picks.current.values()].some((p) => p.dock.to);
     if (!inSession || (!hasControllers && docked)) {
       const [first] = picks.current.keys();
@@ -436,17 +446,19 @@ export default function Scene({
         object.visible = true;
       }
     }
-    if (!inSession) Object.assign(dock, { to: null, placed: false });
-    if (inSession && !hasControllers && (dock.to === 'left' || dock.to === 'right')) {
-      dock.to = null;
-      const panel = menuPanel.current;
-      if (!panel) return;
-      panel.position.fromArray(MENU_POSITION);
-      panel.rotation.fromArray(MENU_ROTATION);
-      panel.scale.setScalar(1);
-      panel.visible = true;
+    for (const { dock: { current: dock }, object, position } of panels) {
+      if (!inSession) Object.assign(dock, { to: null, placed: false });
+      if (inSession && !hasControllers && (dock.to === 'left' || dock.to === 'right')) {
+        dock.to = null;
+        const panel = object.current;
+        if (!panel) continue;
+        panel.position.fromArray(position);
+        panel.rotation.fromArray(MENU_ROTATION);
+        panel.scale.setScalar(1);
+        panel.visible = true;
+      }
     }
-  }, [inSession, hasControllers]);
+  }, [inSession, hasControllers, panels]);
 
   return (
     <>
@@ -541,8 +553,7 @@ export default function Scene({
         spawnPick={spawnPick}
         removePick={removePick}
         onChord={onChord}
-        menu={menuPanel}
-        menuDock={menuDock}
+        panels={panels}
         strings={strings}
         handles={handles}
         onExitXR={onExitXR}
@@ -554,6 +565,15 @@ export default function Scene({
             groupRef={menuPanel}
             stickBusy={(hand) => handles.current.stickBusy?.[hand]}
             position={MENU_POSITION}
+            rotation={MENU_ROTATION}
+            scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
+          />
+        )}
+        {immersive && !screenMenu && (
+          <XRViewPanel
+            groupRef={viewPanel}
+            onSelect={onExitXR}
+            position={VIEW_POSITION}
             rotation={MENU_ROTATION}
             scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
           />

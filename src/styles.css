@@ -215,22 +215,19 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
-/* the corner grip that resizes the panel: three diagonal ridges */
+/* the corner grip that resizes the panel: a bracket in its inner bottom-right corner, as grid-game-threejs's */
 .hud-resize {
   position: absolute;
+  z-index: 2;
   right: 3px;
   bottom: 3px;
-  width: 18px;
-  height: 18px;
-  border-bottom-right-radius: 11px;
+  width: 14px;
+  height: 14px;
+  opacity: 0.45;
   cursor: nwse-resize;
   touch-action: none;
-  background: linear-gradient(
-    135deg,
-    transparent 45%, rgba(255, 255, 255, 0.35) 45% 52%,
-    transparent 52% 64%, rgba(255, 255, 255, 0.35) 64% 71%,
-    transparent 71% 83%, rgba(255, 255, 255, 0.35) 83% 90%,
-    transparent 90%
-  );
+  border-bottom: 2px solid var(--muted);
+  border-right: 2px solid var(--muted);
+  border-bottom-right-radius: 6px;
 }
-.hud-resize:hover { filter: brightness(1.8); }
+.hud-resize:hover { opacity: 1; }

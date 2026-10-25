@@ -15,6 +15,8 @@ import { useGazeTarget } from './Gaze.jsx';
 // down while pointing at it. A queued chord of the progression is selected by
 // the trigger, dragged with the trigger held to reorder it, and dragged off
 // the panel (the pointer stays captured) or double-clicked to remove it.
+// The windowed 3D views show it too, before the camera (see Scene.jsx), with
+// `overlay` drawing it over everything and the mouse wheel scrolling it.
 
 const W = 1000; // canvas px of the reference width...
 const WIDTH_M = 0.44; // ...which is this many metres: sets the text size in XR
@@ -27,13 +29,84 @@ const ICON = 44;
 const ICON_GAP = 28; // between icon and text
 const TOGGLE = 72; // the gear button's size
 const GEAR_ICON = 40; // ...and its icon's
-const PX_M = WIDTH_M / W; // metres per canvas px
+export const PX_M = WIDTH_M / W; // metres per canvas px
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 export const MENU_TOGGLE = 'menu:toggle';
 const MAX_HEIGHT = 1300; // canvas px, about 57 cm: taller panels scroll
 const SCROLL_SPEED = 1400; // canvas px per second at full stick
 const STICK_DEADZONE = 0.2;
+const WHEEL_SPEED = 1.5; // canvas px per px of mouse wheel
+// The open panel is resized by dragging the handle in its bottom-right corner (the trigger held, or the mouse in the
+// windowed 3D views), its top-left corner staying put: the panel gets bigger or smaller, its buttons keep their size,
+// their labels shortened to fit and the rest scrolling. Double-clicking the handle fits it to its buttons again.
+const HANDLE = 64; // canvas px: the handle, this square in the corner
+const RESIZE_KEY = 'menu:resize'; // the handle, pointed at
+const PANEL_MIN = { w: 520, h: 360 }; // canvas px
+const PANEL_MAX = { w: 2400, h: 2600 };
+const SIZE_STORAGE = 'xr-music-menu-size'; // kept on this device, as the page's panel is laid out per window
+
+const clampPanelSize = ({ w, h }) => ({
+  w: Math.round(THREE.MathUtils.clamp(w, PANEL_MIN.w, PANEL_MAX.w)),
+  h: Math.round(THREE.MathUtils.clamp(h, PANEL_MIN.h, PANEL_MAX.h)),
+});
+function loadPanelSize() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SIZE_STORAGE));
+    return Number.isFinite(s?.w) && Number.isFinite(s?.h) ? clampPanelSize(s) : null;
+  } catch {
+    return null;
+  }
+}
+function savePanelSize(size) {
+  try {
+    if (size) localStorage.setItem(SIZE_STORAGE, JSON.stringify(size));
+    else localStorage.removeItem(SIZE_STORAGE);
+  } catch {
+    // storage blocked: it's fitted to its buttons next time
+  }
+}
+
+const _plane = new THREE.Plane();
+const _normal = new THREE.Vector3();
+const _point = new THREE.Vector3();
+/**
+ * Where pointer event `e` is on `mesh`'s plane, even off the mesh: an XR
+ * pointer's captured plane gives it, the mouse's ray meets it.
+ */
+function eventPoint(e, mesh) {
+  if (e.pointOnFace) return e.pointOnFace;
+  if (e.ray) {
+    _normal.set(0, 0, 1).transformDirection(mesh.matrixWorld);
+    _plane.setFromNormalAndCoplanarPoint(_normal, mesh.getWorldPosition(_point));
+    if (e.ray.intersectPlane(_plane, _point)) return _point;
+  }
+  return e.point;
+}
 const THUMBSTICK_Y = 3; // xr-standard gamepad axis
+// In the room, the panel is a slab this deep (m, in the world, whatever its scale) behind its face, its outline the
+// face's rounded rectangle, as grid-game-threejs's panels are; not in the windowed 3D views' overlay
+const SLAB_DEPTH = 0.01;
+const SLAB_INSET = 4; // canvas px: the face's rounded rectangle (see the redraw), inset this far...
+const SLAB_RADIUS = 40; // ...with corners this round
+const _worldScale = new THREE.Vector3();
+
+/** The slab's outline for a face `w` x `h` canvas px, extruded 1 deep (scaled to SLAB_DEPTH in the world), in metres from its centre. */
+function slabGeometry(w, h) {
+  const x1 = ((w - 2 * SLAB_INSET) / 2) * PX_M;
+  const y1 = ((h - 2 * SLAB_INSET) / 2) * PX_M;
+  const r = Math.min(SLAB_RADIUS * PX_M, x1, y1);
+  const shape = new THREE.Shape();
+  shape.moveTo(-x1 + r, -y1);
+  shape.lineTo(x1 - r, -y1);
+  shape.absarc(x1 - r, -y1 + r, r, -Math.PI / 2, 0);
+  shape.lineTo(x1, y1 - r);
+  shape.absarc(x1 - r, y1 - r, r, 0, Math.PI / 2);
+  shape.lineTo(-x1 + r, y1);
+  shape.absarc(-x1 + r, y1 - r, r, Math.PI / 2, Math.PI);
+  shape.lineTo(-x1, -y1 + r);
+  shape.absarc(-x1 + r, -y1 + r, r, Math.PI, Math.PI * 1.5);
+  return new THREE.ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false, curveSegments: 6 });
+}
 const SCROLLBAR = 8;
 
 const iconImages = new Map();
@@ -225,8 +298,9 @@ function drawButtonFrame(ctx, r, { hot, disabled, info, current, color, dim, bea
   ctx.stroke();
 }
 
-export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect, onQueueEdit, groupRef, ...groupProps }) {
+export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect, onQueueEdit, overlay = false, stickBusy, groupRef, ...groupProps }) {
   const mesh = useRef(null);
+  const slab = useRef(null);
   const [pointerKey, setPointerKey] = useState(null);
   const [gazeKey, setGazeKey] = useState(null);
   const [iconsLoaded, setIconsLoaded] = useState(0);
@@ -234,10 +308,13 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   // sized for every label it can show, measured once: the items only count when there's no such list
   const sizedItems = labels ? null : items;
   const panelW = useMemo(() => panelWidth(title, labels ?? sizedItems.map((i) => i.label)), [title, labels, sizedItems]);
-  const { width, height: contentHeight, rects, frames, top } = useMemo(() => layout(open, items, lines, panelW), [open, items, lines, panelW]);
-  // taller than MAX_HEIGHT: the buttons scroll between the title and the bottom edge
-  const height = open ? Math.min(contentHeight, MAX_HEIGHT) : contentHeight;
-  const maxScroll = contentHeight - height;
+  // dragged to a size of its own from its corner handle ({ w, h } canvas px), or null: fitted to its buttons
+  const [size, setSize] = useState(loadPanelSize);
+  const openW = size?.w ?? panelW;
+  const { width, height: contentHeight, rects, frames, top } = useMemo(() => layout(open, items, lines, openW), [open, items, lines, openW]);
+  // taller than MAX_HEIGHT (or the size it's dragged to): the buttons scroll between the title and the bottom edge
+  const height = open ? (size?.h ?? Math.min(contentHeight, MAX_HEIGHT)) : contentHeight;
+  const maxScroll = Math.max(0, contentHeight - height);
   const clipTop = top - GAP / 2;
   const clipBottom = height - PAD / 2;
   const [scroll, setScroll] = useState(0);
@@ -266,7 +343,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   useFrame((_, dt, frame) => {
     if (!pointing.current || maxScroll <= 0 || !frame) return;
     for (const source of frame.session.inputSources) {
-      if (source.handedness !== 'right') continue;
+      if (source.handedness !== 'right' || stickBusy?.('right')) continue; // (a grip holding something: its stick pushes and pulls that)
       const y = source.gamepad?.axes[THUMBSTICK_Y] ?? 0;
       if (Math.abs(y) < STICK_DEADZONE) continue;
       setScroll((s) => THREE.MathUtils.clamp(Math.min(s, maxScroll) + y * SCROLL_SPEED * Math.min(dt, 0.1), 0, maxScroll));
@@ -278,11 +355,28 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     () => Math.min(layout(true, Array.from({ length: rows ?? items.length }, (_, i) => ({ id: `row-${i}` })), lines, panelW).height, MAX_HEIGHT),
     [rows, items.length, lines, panelW],
   );
-  // that tallest panel's edges in the group's metres, for docking it against things (see Grab.jsx)
+  // that tallest panel's edges in the group's metres (or the size it's dragged to), for docking it against things (see
+  // Grab.jsx); its top-left corner stays put however it's sized
   const bounds = useMemo(() => {
     const top = (openHeight / 2) * PX_M;
-    return { left: (-panelW / 2) * PX_M, right: (panelW / 2) * PX_M, top, bottom: top - Math.min(openHeight, MAX_HEIGHT) * PX_M };
-  }, [openHeight, panelW]);
+    const left = (-panelW / 2) * PX_M;
+    return { left, right: left + openW * PX_M, top, bottom: top - (size?.h ?? Math.min(openHeight, MAX_HEIGHT)) * PX_M };
+  }, [openHeight, panelW, openW, size]);
+
+  // resizing: the handle's corner follows the pointer, with the top-left corner kept where it is (see grabSize)
+  const resizing = useRef(null); // while dragged: the pointer's offset from the corner, in canvas px
+  const onHandle = (px, py) => open && px >= width - HANDLE && py >= height - HANDLE;
+  /** The size that would put the panel's bottom-right corner where pointer event `e` is (on the panel's plane). */
+  const grabSize = (e) => {
+    const local = mesh.current.parent.worldToLocal(_local.copy(eventPoint(e, mesh.current)));
+    return { w: local.x / PX_M + panelW / 2, h: openHeight / 2 - local.y / PX_M };
+  };
+  const resizeTo = (e) => {
+    const grab = grabSize(e);
+    const next = clampPanelSize({ w: grab.w + resizing.current.w, h: grab.h + resizing.current.h });
+    setSize((s) => (s && s.w === next.w && s.h === next.h ? s : next));
+    return next;
+  };
 
   const canvas = useMemo(() => {
     const c = document.createElement('canvas');
@@ -297,6 +391,18 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     return t;
   }, [canvas]);
   useEffect(() => () => texture.dispose(), [texture]);
+  const slabGeometryMemo = useMemo(() => slabGeometry(width, height), [width, height]);
+  useEffect(() => () => slabGeometryMemo.dispose(), [slabGeometryMemo]);
+  // the slab keeps to SLAB_DEPTH in the world however the panel is scaled (docked, held, a phone's), running back from
+  // just behind the face (no z-fighting)
+  useFrame(() => {
+    const s = slab.current;
+    if (!s) return;
+    const scale = s.parent.getWorldScale(_worldScale).x || 1;
+    const d = SLAB_DEPTH / scale;
+    s.scale.set(1, 1, d);
+    s.position.z = -d - 0.0003 / scale;
+  });
 
   const hovered = gazeKey ?? pointerKey;
   useEffect(() => {
@@ -480,6 +586,19 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
       ctx.fill();
     }
+
+    // the resize handle: diagonal ridges in the bottom-right corner
+    const handleHot = hovered === RESIZE_KEY;
+    ctx.strokeStyle = handleHot ? '#9cc8ff' : 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = handleHot ? 5 : 3;
+    ctx.lineCap = 'round';
+    for (const d of [18, 32, 46]) {
+      ctx.beginPath();
+      ctx.moveTo(width - 14 - d, height - 14);
+      ctx.lineTo(width - 14, height - 14 - d);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
     texture.needsUpdate = true;
   }, [canvas, texture, width, height, contentHeight, rects, frames, clipTop, clipBottom, scrolled, maxScroll, open, title, status, hovered, iconsLoaded, dragging]);
 
@@ -495,10 +614,13 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     return r && !r.item?.disabled && !r.item?.info && !r.option?.disabled ? r.id : null;
   };
   useGazeTarget(mesh, onSelect, setGazeKey, pick);
+  /** Whether a pointer event is on the resize handle. */
+  const atHandle = (e) => Boolean(e.uv) && onHandle(e.uv.x * width, (1 - e.uv.y) * height);
+  const resizedAt = useRef(-Infinity); // when a resize ended: the click that follows isn't one
 
   /** Where a pointer event is on the canvas, in px, even off the panel (from its captured plane). */
   const toCanvas = (e) => {
-    const local = mesh.current.worldToLocal(_local.copy(e.pointOnFace ?? e.point));
+    const local = mesh.current.worldToLocal(_local.copy(eventPoint(e, mesh.current)));
     return { px: (local.x / (width * PX_M) + 0.5) * width, py: (0.5 - local.y / (height * PX_M)) * height };
   };
   /** Where a dragged chord would go at (px, py): off the panel, onto a queued chord, or the queue's end. */
@@ -518,8 +640,23 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       <mesh
         ref={mesh}
         position={[((width - panelW) / 2) * PX_M, ((openHeight - height) / 2) * PX_M, 0]}
+        renderOrder={overlay ? 1000 : 0}
         onPointerOver={() => (pointing.current = true)}
+        onWheel={(e) => {
+          // a mouse wheel scrolls it too, outside XR
+          if (maxScroll <= 0) return;
+          e.stopPropagation();
+          setScroll((s) => THREE.MathUtils.clamp(Math.min(s, maxScroll) + e.nativeEvent.deltaY * WHEEL_SPEED, 0, maxScroll));
+        }}
         onPointerDown={(e) => {
+          if (atHandle(e)) {
+            // the resize handle: held on to, so the corner follows the pointer off the panel
+            e.stopPropagation();
+            mesh.current.setPointerCapture?.(e.pointerId);
+            const grab = grabSize(e);
+            resizing.current = { w: width - grab.w, h: height - grab.h };
+            return;
+          }
           const item = queuedAt(e);
           if (item?.queueIndex == null) return;
           // a queued chord: hold on to the pointer, so a drag carries on off the panel
@@ -529,13 +666,25 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
           setDrag({ from: item.queueIndex, label: item.label, sx: px, sy: py, px, py, moved: false, to: item.queueIndex, outside: false });
         }}
         onPointerMove={(e) => {
-          setPointerKey(pick(e));
+          if (resizing.current) {
+            e.stopPropagation();
+            setPointerKey(RESIZE_KEY);
+            return resizeTo(e);
+          }
+          setPointerKey(atHandle(e) ? RESIZE_KEY : pick(e));
           if (!drag) return;
           const { px, py } = toCanvas(e);
           const moved = drag.moved || Math.hypot(px - drag.sx, py - drag.sy) > DRAG_START;
           setDrag({ ...drag, px, py, moved, ...(moved ? dropAt(px, py) : {}) });
         }}
         onPointerUp={(e) => {
+          if (resizing.current) {
+            mesh.current.releasePointerCapture?.(e.pointerId);
+            savePanelSize(resizeTo(e));
+            resizing.current = null;
+            resizedAt.current = performance.now();
+            return;
+          }
           if (!drag) return;
           mesh.current.releasePointerCapture?.(e.pointerId);
           setDrag(null);
@@ -545,6 +694,12 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
           else if (drag.to != null && drag.to !== drag.from) onQueueEdit?.({ type: 'move', from: drag.from, to: drag.to });
         }}
         onDoubleClick={(e) => {
+          if (atHandle(e)) {
+            // fitted to its buttons again
+            e.stopPropagation();
+            setSize(null);
+            return savePanelSize(null);
+          }
           const item = queuedAt(e);
           if (item?.queueIndex == null) return;
           e.stopPropagation();
@@ -555,6 +710,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
           setPointerKey(null);
         }}
         onClick={(e) => {
+          if (performance.now() - resizedAt.current < 300) return;
           if (dragged.current) {
             dragged.current = false;
             return;
@@ -567,7 +723,14 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         }}
       >
         <planeGeometry args={[width * PX_M, height * PX_M]} />
-        <meshBasicMaterial map={texture} transparent depthWrite={false} toneMapped={false} />
+        {/* both sides: it reads from behind too (mirrored), as when it's held or docked turned away */}
+        <meshBasicMaterial map={texture} transparent depthWrite={false} depthTest={!overlay} toneMapped={false} side={THREE.DoubleSide} />
+        {!overlay && (
+          // (the face is what's pointed at; drawn first, behind it)
+          <mesh ref={slab} geometry={slabGeometryMemo} renderOrder={-1} raycast={() => null}>
+            <meshStandardMaterial color={0x1c2230} roughness={0.55} metalness={0.15} transparent opacity={0.8} depthWrite={false} />
+          </mesh>
+        )}
       </mesh>
     </group>
   );

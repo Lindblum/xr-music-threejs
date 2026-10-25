@@ -319,7 +319,7 @@ function progressionItems(state) {
       id: 'scale',
       label: `Scale: ${state.scale.name}`,
       icon: 'scale',
-      title: 'Shortcut: S',
+      title: 'Shortcut: S (1–9 choose the chord on that degree, Shift+1–9 its 7th)',
       ...keyScale,
       dropdown: dropdown(state, 'scale', SCALES.map((sc) => sc.name), SCALES.indexOf(state.scale)),
     },

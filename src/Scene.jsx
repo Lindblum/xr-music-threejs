@@ -8,8 +8,8 @@ import { GazePlay, TouchPlay } from './Touch.jsx';
 import { useControllerGrips } from './Grab.jsx';
 import { Pick } from './Pick.jsx';
 import { ChordFrame, FilterFrame, ToolFrame, chordFrameOffset, filterFrameOffsetY, toolFrameOffset } from './SideFrames.jsx';
-import { XRMenuPanel } from './XRMenuPanel.jsx';
-import { SideBySide } from './SideBySide.jsx';
+import { PX_M, XRMenuPanel } from './XRMenuPanel.jsx';
+import { EYE_SEPARATION, SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
 import { CameraBackground, CardboardRig } from './Cardboard.jsx';
 import { GazeReticle } from './Gaze.jsx';
@@ -49,6 +49,53 @@ const PICK_ROTATION = [0, -0.3, 0.25];
 // With VR controllers the panel starts docked on the left one, like a palette
 // held in that hand, and the right controller's ray presses its buttons. A
 // grip takes it to dock on either controller or the NeckFrame (see Grab.jsx).
+
+// The windowed 3D views (SBS, Interlaced) draw the panel in the scene, as XR
+// does, so each eye sees it: held before the camera at its top left, where
+// the page's panel sits, this far away, a little nearer than the board, and
+// as big on the screen as the page's panel (before SBS squeezes each eye to
+// half width, as it does the whole scene, for the display to stretch back).
+const STEREO_MENU_DISTANCE = 1.5; // metres
+const STEREO_MENU_MARGIN = 12; // CSS px clear of the view's edges, as the page's panel
+// CSS px per canvas px (see XRMenuPanel) that matches the page's panel: its rows are 44 px apart (button and gap), the canvas's 84
+const STEREO_MENU_CSS_PX = 44 / 84;
+const _menuCorner = new THREE.Vector3();
+
+/** The panel before the camera in a windowed 3D view, picked and scrolled by the mouse. */
+function StereoMenu({ menu }) {
+  const group = useRef(null);
+  const controls = useThree((s) => s.controls);
+  // the orbit controls leave the mouse to the panel while it's over it (a drag, the wheel)
+  const setOrbiting = (on) => controls && (controls.enabled = on);
+  useEffect(() => () => setOrbiting(true), [controls]);
+  // after the orbit controls move the camera (priority -1), before the stereo view renders (1)
+  useFrame(({ camera, size }) => {
+    const g = group.current;
+    const bounds = g?.userData.bounds;
+    if (!bounds) return;
+    camera.updateMatrixWorld();
+    const halfH = STEREO_MENU_DISTANCE * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const halfW = halfH * camera.aspect;
+    const metresPerCssPx = (2 * halfH) / size.height; // at the panel's distance
+    const margin = STEREO_MENU_MARGIN * metresPerCssPx;
+    // shrunk to fit a small or narrow window: at most the view's height, or half its width
+    const scale = Math.min(
+      (STEREO_MENU_CSS_PX * metresPerCssPx) / PX_M,
+      (2 * halfH - 2 * margin) / (bounds.top - bounds.bottom),
+      (halfW - margin) / (bounds.right - bounds.left),
+    );
+    g.scale.setScalar(scale);
+    // each eye sees it this far to one side of where it is (nearer than the stereo cameras' focus): kept on the screen in both
+    const parallax = (EYE_SEPARATION / 2) * Math.max(0, 1 - STEREO_MENU_DISTANCE / camera.focus);
+    g.position.copy(_menuCorner.set(-halfW + margin + parallax - bounds.left * scale, halfH - margin - bounds.top * scale, -STEREO_MENU_DISTANCE)).applyMatrix4(camera.matrixWorld);
+    g.quaternion.copy(camera.quaternion);
+  });
+  return (
+    <group onPointerOver={() => setOrbiting(false)} onPointerOut={() => setOrbiting(true)}>
+      <XRMenuPanel {...menu} overlay groupRef={group} />
+    </group>
+  );
+}
 
 /** Where the first pick is docked: nowhere yet, until controllers show up (see Grab.jsx). */
 const firstPickDock = () => ({ to: null, placed: false, scale: 1 });
@@ -145,7 +192,8 @@ function Lights() {
 const _head = new THREE.Vector3();
 
 /**
- * Left thumbstick moves, right thumbstick turns smoothly about the head.
+ * Left thumbstick moves, right thumbstick turns smoothly about the head
+ * (not while that controller's grip holds something: see Grab.jsx).
  * The grip buttons, on a frame, move, turn and scale it, or
  * carry and dock the panel. An undocked panel travels with the player.
  */
@@ -169,8 +217,10 @@ function Player({ origin, onExitXR, children, ...grips }) {
     (velocity, turn, delta, state) => {
       const o = origin.current;
       if (!o) return;
-      o.position.addScaledVector(velocity, delta);
-      if (!turn) return;
+      // a stick whose grip holds something pushes and pulls that instead (see Grab.jsx)
+      const busy = grips.handles.current.stickBusy ?? {};
+      if (!busy.left) o.position.addScaledVector(velocity, delta);
+      if (!turn || busy.right) return;
       // swing the origin around the head so turning doesn't move the viewer
       state.camera.getWorldPosition(_head);
       const dx = o.position.x - _head.x;
@@ -413,6 +463,7 @@ export default function Scene({
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
+      {(state.view === 'sbs' || state.view === 'interlaced') && !immersive && <StereoMenu menu={menu} />}
       {phoneStereo && <PhoneStereoXR />}
       {phoneStereo && state.passthrough && (
         <PhoneStereoCameraFeed
@@ -501,6 +552,7 @@ export default function Scene({
           <XRMenuPanel
             {...menu}
             groupRef={menuPanel}
+            stickBusy={(hand) => handles.current.stickBusy?.[hand]}
             position={MENU_POSITION}
             rotation={MENU_ROTATION}
             scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}

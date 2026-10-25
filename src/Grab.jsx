@@ -26,6 +26,13 @@ import { playClick } from './audio.js';
 // the other controller, if it was there; a pick already docked here is let
 // go where it is to make way). Touching or pointing at neither, a double tap
 // lets go of whatever is docked on that controller, leaving it where it is.
+// A third tap soon after docks the panel on that controller if it isn't docked
+// (free in the room, or held), flying there from where it is.
+//
+// While a grip holds the panel, a pick or a frame (in that hand alone), its
+// thumbstick pushes it away along the controller's ray (up) or reels it in
+// (down), faster the further off it is; meanwhile that stick neither moves
+// nor turns the player, nor scrolls the panel (handles.current.stickBusy).
 //
 // The ToolFrame's pick (see SideFrames.jsx), touched by a controller's sphere,
 // or pointed at with the trigger pulled, gives that controller a new pick,
@@ -89,6 +96,12 @@ const DOCK_TILT = -0.5; // radians about the controller's X: the top leans forwa
 const DOCK_SCALE = 0.5;
 const DOUBLE_TAP = 0.35; // seconds between a grip's short tap and its next press, for a double tap
 const TAP = 0.3; // seconds: a grip pressed no longer than this is a tap
+const FLY = 0.4; // seconds a triple tap's panel takes to fly to its dock
+const THUMBSTICK_Y = 3; // xr-standard gamepad axis: up is negative
+const STICK_DEADZONE = 0.2;
+const PUSH_RATE = 1.5; // per second at full tilt, this share of the held thing's distance from the hand...
+const PUSH_MIN = 0.25; // ...but never slower than at this distance (m)
+const REEL_MIN = 0.05; // m from the hand: reeled in no nearer
 
 const _tilt = new THREE.Matrix4().makeRotationX(DOCK_TILT);
 const _dockPose = new THREE.Matrix4();
@@ -103,6 +116,26 @@ const _parentInverse = new THREE.Matrix4();
 const _offset = new THREE.Matrix4();
 const _step = new THREE.Matrix4();
 const _identity = new THREE.Quaternion();
+const _gripTurn = new THREE.Quaternion();
+const _push = new THREE.Vector3();
+const _flyFrom = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), scale: new THREE.Vector3() };
+const _flyTo = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), scale: new THREE.Vector3() };
+const _noMatrix = new THREE.Matrix4();
+const _flight = new THREE.Matrix4();
+
+/**
+ * How far controller `c`'s thumbstick pushes (or reels in) what its grip holds,
+ * `dist` metres from the grip, this frame: a step along its ray in the grip's
+ * space (to add to a grip-space offset), or null with the stick at rest.
+ */
+function pushStep(c, dist, dt) {
+  const y = c.gamepad.axes[THUMBSTICK_Y] ?? 0;
+  if (Math.abs(y) < STICK_DEADZONE) return null;
+  const step = Math.max(-y * PUSH_RATE * Math.max(dist, PUSH_MIN) * Math.min(dt, 0.1), Math.min(0, REEL_MIN - dist));
+  if (!step) return null;
+  _gripTurn.setFromRotationMatrix(c.grip).invert();
+  return _push.copy(c.ray.direction).applyQuaternion(_gripTurn).multiplyScalar(step);
+}
 
 function isShown(object) {
   for (let o = object; o; o = o.parent) if (!o.visible) return false;
@@ -261,6 +294,7 @@ export function useControllerGrips({
       handles.current.toolTouching = {};
       handles.current.effectKnobs = {};
       handles.current.effectSwitches = {};
+      handles.current.stickBusy = {};
       triggerKnob.current = {};
       return;
     }
@@ -285,6 +319,7 @@ export function useControllerGrips({
     const knobTouching = {}; // effect -> a tip is on its knob, a ray at it, or a grip or trigger holding it
     const switchTouching = {}; // effect -> a tip is on its switch, or a ray at it
     const aimHits = [];
+    const stickBusy = {}; // hand -> its grip holds something its stick pushes and pulls
 
     // the panel starts on the left controller and the first pick on the right (or whichever there is), until moved
     if (panel && !dock.to && !dock.placed && (controllers.left || controllers.right)) dock.to = controllers.left ? 'left' : 'right';
@@ -320,6 +355,16 @@ export function useControllerGrips({
         pulse(c.gamepad, DETACH_PULSE);
         return;
       }
+      playClick('attach');
+      pulse(c.gamepad, DOCK_PULSE);
+    };
+
+    /** A triple tap of `hand`'s grip: the panel, if it isn't docked (free, or held), docks on this controller, flying there. */
+    const tripleTap = (hand, c) => {
+      if (!panel || dock.to) return;
+      letGo('menu');
+      panel.updateMatrixWorld();
+      Object.assign(dock, { to: hand, placed: true, fly: { from: panel.matrixWorld.clone(), t0: performance.now() / 1000 } });
       playClick('attach');
       pulse(c.gamepad, DOCK_PULSE);
     };
@@ -424,17 +469,19 @@ export function useControllerGrips({
     for (const hand of HANDS) {
       const c = controllers[hand];
       // a grip's second press soon after a short tap is a double tap: it docks or undocks (see below), and takes nothing
-      const tap = (taps.current[hand] ??= { down: false, pressedAt: -1, tappedAt: -Infinity });
+      // (and a third, a triple tap)
+      const tap = (taps.current[hand] ??= { down: false, pressedAt: -1, tappedAt: -Infinity, count: 0 });
       const squeezed = Boolean(c?.squeeze);
       let doubleTapped = false;
+      let tripleTapped = false;
       if (squeezed && !tap.down) {
-        if (now - tap.tappedAt < DOUBLE_TAP) {
-          tap.tappedAt = -Infinity;
-          doubleTapped = true;
-        }
+        tap.count = now - tap.tappedAt < DOUBLE_TAP ? tap.count + 1 : 1; // (this press: the count-th tap in a row)
+        tap.tappedAt = -Infinity;
         tap.pressedAt = now;
+        doubleTapped = tap.count === 2;
+        tripleTapped = tap.count >= 3;
       } else if (!squeezed && tap.down) {
-        tap.tappedAt = now - tap.pressedAt <= TAP ? now : -Infinity;
+        tap.tappedAt = tap.count < 3 && now - tap.pressedAt <= TAP ? now : -Infinity; // (a short press is a tap, unless it ended a triple)
       }
       tap.down = squeezed;
       let grab = grabs.current[hand];
@@ -493,7 +540,10 @@ export function useControllerGrips({
       if (aimed?.target === 'pick') (pickTouching[aimed.id] ??= {})[hand] = true;
       if (SIDE_FRAMES.includes(aimed?.target)) frameTouching[aimed.target][hand] = true;
       if (aimed?.target === 'knob') knobTouching[aimed.effect] = true;
-      if (doubleTapped) {
+      if (tripleTapped) {
+        tripleTap(hand, c);
+        grab = grabs.current[hand] = { target: 'none' };
+      } else if (doubleTapped) {
         // what it docks: a pick or the panel it's touching (not the panel docked here), else one it points at
         const panelTouched =
           panel && isShown(panel) && dock.to !== hand && touchesPanel(panel, _tip, CONTROLLER_RADIUS);
@@ -581,6 +631,7 @@ export function useControllerGrips({
           }
           dock.to = null;
           dock.placed = true;
+          dock.fly = null; // (caught in flight)
           // the other hand lets go of it, if it had it
           for (const other of HANDS) if (grabs.current[other]?.target === 'menu') grabs.current[other] = { target: 'none' };
           const gripInverse = c.grip.clone().invert();
@@ -608,6 +659,13 @@ export function useControllerGrips({
         }
         grabs.current[hand] = grab;
       }
+      // the stick pushes and pulls a frame or pick held in this hand alone: its offset from the grip shifts along the ray
+      const carriedBy = FRAMES.includes(grab.target) ? carried.current[grab.target] : grab.target === 'pick' ? carried.current[`pick:${grab.id}`] : null;
+      if (FRAMES.includes(grab.target) || grab.target === 'pick' || grab.target === 'menu') stickBusy[hand] = true;
+      if (carriedBy?.oneHand?.hand === hand) {
+        const u = pushStep(c, _centre.setFromMatrixPosition(carriedBy.oneHand.offset).length(), dt);
+        if (u) carriedBy.oneHand.offset.premultiply(_step.makeTranslation(u.x, u.y, u.z));
+      }
       if (FRAMES.includes(grab.target)) holding[grab.target][hand] = c;
       else if (grab.target === 'pick') (pickHolding[grab.id] ??= {})[hand] = c;
       else if (grab.target === 'knob' && objects.filter) slideKnob(grab, c);
@@ -623,7 +681,12 @@ export function useControllerGrips({
         if (step !== grab.step) pulse(c.gamepad, BEND_TICK);
         grab.step = step;
       } else if (grab.target === 'menu' && panel) {
-        // keeps its pose in the hand, easing to full size about the point it was taken by
+        // keeps its pose in the hand, easing to full size about the point it was taken by; the stick moves both along the ray
+        const u = pushStep(c, grab.point.length(), dt);
+        if (u) {
+          grab.offset.premultiply(_step.makeTranslation(u.x, u.y, u.z));
+          grab.point.add(u);
+        }
         grab.size += (grab.grow - grab.size) * (1 - Math.exp(-GROW_RATE * Math.min(dt, 0.1)));
         const { x, y, z } = grab.point;
         _offset.makeTranslation(x, y, z).multiply(_step.makeScale(grab.size, grab.size, grab.size));
@@ -642,6 +705,7 @@ export function useControllerGrips({
       pickList.map((p) => [p.id, { touching: flags(pickTouching[p.id]), holding: flags(pickHolding[p.id]), docked: p.dock.to }]),
     );
     handles.current.aiming = aiming;
+    handles.current.stickBusy = stickBusy;
     handles.current.toolTouching = flags(toolTouching);
     handles.current.effectKnobs = knobTouching;
     handles.current.effectSwitches = switchTouching;
@@ -692,6 +756,16 @@ export function useControllerGrips({
       const c = controllers[dock.to];
       panel.visible = Boolean(c);
       if (c) carry(panel, c.rayMatrix, controllerDockOffset(panel));
+      // flying there after a triple tap: between where it set off and its dock, eased
+      const t = dock.fly && c ? (now - dock.fly.t0) / FLY : 1;
+      if (t < 1) {
+        const k = THREE.MathUtils.smootherstep(t, 0, 1);
+        panel.updateMatrixWorld();
+        dock.fly.from.decompose(_flyFrom.position, _flyFrom.quaternion, _flyFrom.scale);
+        panel.matrixWorld.decompose(_flyTo.position, _flyTo.quaternion, _flyTo.scale);
+        _flight.compose(_flyFrom.position.lerp(_flyTo.position, k), _flyFrom.quaternion.slerp(_flyTo.quaternion, k), _flyFrom.scale.lerp(_flyTo.scale, k));
+        carry(panel, _noMatrix, _flight);
+      } else dock.fly = null;
     }
   });
 }

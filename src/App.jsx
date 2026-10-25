@@ -317,6 +317,28 @@ function useKeyboard(actions, player) {
   }, [actions, player.toggle, player.stop]);
 }
 
+/**
+ * The number keys choose a chord by scale degree, as if chosen on the
+ * ChordFrame: 1 the I chord, 2 the ii... its 7th with Shift. A degree with no
+ * chord in the chart (see keyChordChart), or beyond the scale, does nothing.
+ */
+function useDegreeKeys(chart, scale, chooseChord) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, select, textarea')) return;
+      const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+      if (!digit) return;
+      e.preventDefault();
+      const step = scale.steps[Number(digit[1]) - 1];
+      const row = chart.find((r) => r.step === step);
+      const chord = row && (e.shiftKey ? row.seventh : row.triad);
+      if (chord) chooseChord(chord);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [chart, scale, chooseChord]);
+}
+
 /** Turns sound on at the first tap or key press, which browsers need before playing it. */
 function useAudioUnlock() {
   useEffect(() => {
@@ -797,7 +819,7 @@ function Hud({ menu, notes }) {
           </p>
         ))}
       </div>
-      <div className="hud-resize" onPointerDown={startResize} onDoubleClick={() => setSize(null)} title="Drag to resize; double-click to fit" />
+      <div className="hud-resize" onPointerDown={startResize} onDoubleClick={() => setSize(null)} title="Drag to resize (double-click: reset)" />
     </aside>
   );
 }
@@ -822,6 +844,7 @@ export default function App() {
     setChosenChord(chord);
     playSelected(chord, latestSelect.current.mode, latestSelect.current.instrument);
   }, []);
+  useDegreeKeys(chart, state.scale, chooseChord);
   // with Play on Select, the progression plays each chord (or its root) as it lands on it, at the top of its measure
   const strum = useRef({});
   strum.current = { chord: currentChord, instrument: state.instrument, mode: state.playOnSelect };
@@ -1093,7 +1116,8 @@ export default function App() {
       </Canvas>
       {handheld && <CardboardOverlay split={phoneStereo} onHold={(held) => (holding.current = held)} onExit={exitXR} />}
       {/* the menu on the screen: windowed, or over XR: Phone AR (in the AR session's DOM overlay, or over the motion-sensor view) */}
-      {(!inXR || screenMenu) &&
+      {/* (the windowed 3D views draw it in the scene instead, for both eyes: see Scene.jsx) */}
+      {((!inXR && view !== 'sbs' && view !== 'interlaced') || screenMenu) &&
         (sessionActive
           ? createPortal(<ScreenMenu menu={menu} notes={notes} pressing={menuPressed} />, store.getState().domOverlayRoot)
           : <ScreenMenu menu={menu} notes={notes} pressing={menuPressed} />)}

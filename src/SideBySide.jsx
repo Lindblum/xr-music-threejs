@@ -10,13 +10,14 @@ export const EYE_SEPARATION = 0.064; // metres
 
 const _size = new THREE.Vector2();
 
-// whether the view is split, for pointer picking
-let active = false;
+// the eyes while the view is split, for pointer picking
+let active = null;
 
 /**
  * The Canvas's pointer events: as usual, except that while the view is
- * split, a pointer over either half picks what that half shows, so hovering
- * a note works in both.
+ * split, a pointer over either half picks what that half shows, seen from
+ * that half's eye, so hovering a note works in both, and lands on what's
+ * under it however near the camera it is (the menu: see Scene.jsx).
  */
 export function sideBySideEvents(store) {
   return {
@@ -25,7 +26,13 @@ export function sideBySideEvents(store) {
       const { width, height } = state.size;
       const x = active ? (event.offsetX % (width / 2)) * 2 : event.offsetX;
       state.pointer.set((x / width) * 2 - 1, -(event.offsetY / height) * 2 + 1);
-      state.raycaster.setFromCamera(state.pointer, state.camera);
+      const eye = active && (event.offsetX < width / 2 ? active.cameraL : active.cameraR);
+      if (eye) {
+        // (the stereo camera leaves these to its renders)
+        eye.updateMatrixWorld();
+        eye.projectionMatrixInverse.copy(eye.projectionMatrix).invert();
+      }
+      state.raycaster.setFromCamera(state.pointer, eye || state.camera);
     },
   };
 }
@@ -38,11 +45,11 @@ export function SideBySide() {
     return s;
   }, []);
   useEffect(() => {
-    active = true;
+    active = stereo;
     return () => {
-      active = false;
+      active = null;
     };
-  }, []);
+  }, [stereo]);
 
   useFrame(({ gl, scene, camera }) => {
     camera.updateMatrixWorld();

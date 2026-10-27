@@ -18,6 +18,8 @@ import arrowUp from 'lineicons/assets/svgs/regular/arrow-upward.svg?raw';
 import arrowDown from 'lineicons/assets/svgs/regular/arrow-downward.svg?raw';
 import floppyDisk from 'lineicons/assets/svgs/regular/floppy-disk-1.svg?raw';
 import folder from 'lineicons/assets/svgs/regular/folder-1.svg?raw';
+import wheelchair from 'lineicons/assets/svgs/regular/wheelchair-1.svg?raw';
+import textFormat from 'lineicons/assets/svgs/regular/text-format.svg?raw';
 
 // Lineicons ship with a fixed fill; recolour to follow the surrounding text
 // and size to the font.
@@ -158,6 +160,30 @@ const record = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" aria-hid
 </svg>`;
 const analyze = wave('M2.5 12h1.5M6 9v6M9 7v10M12 10v4M14.5 14.5a4.5 4.5 0 1 0 0-.01M17.75 17.75 21.5 21.5');
 
+// Vibration: a controller between buzz marks; off, the marks gone and a slash through it
+const vibrationBody = `<rect x="8" y="4" width="8" height="16" rx="2.5" stroke="currentColor" stroke-width="1.5"/>`;
+const vibrationOn = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+${vibrationBody}
+<path d="M4.75 8.5 3 10.25l1.75 1.75L3 13.75l1.75 1.75M19.25 8.5 21 10.25l-1.75 1.75L21 13.75l-1.75 1.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+const vibrationOff = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+${vibrationBody}
+<path d="M3.5 3.5l17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
+// Controller Guide: a controller's ring and handle, a leader line out to a label; off, the label gone
+const guideController = `<circle cx="7.5" cy="9" r="4.25" stroke="currentColor" stroke-width="1.5"/>
+<path d="M7.5 13.25v7" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"/>`;
+const controllerGuideOn = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+${guideController}
+<path d="M7.5 9 13 5.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-opacity="0.7"/>
+<rect x="13" y="3" width="9" height="5" rx="1.25" fill="currentColor"/>
+</svg>`;
+const controllerGuideOff = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+${guideController}
+<rect x="13.5" y="3.5" width="8" height="4" rx="1" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" stroke-opacity="0.6"/>
+</svg>`;
+
 const ICONS = {
   instrument: recolour(music),
   sample,
@@ -207,6 +233,13 @@ const ICONS = {
   // saved progressions
   save: recolour(floppyDisk),
   load: recolour(folder),
+  // Accessibility
+  accessibility: recolour(wheelchair),
+  textSize: recolour(textFormat),
+  vibrationOn,
+  vibrationOff,
+  controllerGuideOn,
+  controllerGuideOff,
 };
 
 /** An icon as a standalone SVG in a fixed colour, for drawing onto a canvas. */

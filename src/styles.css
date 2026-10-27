@@ -4,6 +4,7 @@
   --border: rgba(255, 255, 255, 0.14);
   --text: #e8ecf6;
   --muted: #9aa3b8;
+  --text-scale: 1; /* Accessibility → Text Size: the panel's text and icons (set by App) */
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -32,17 +33,17 @@ canvas { display: block; touch-action: none; }
   border-radius: 14px;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   user-select: none;
 }
 
 .hud header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.hud h1 { flex: 1; margin: 0; font-size: 16px; font-weight: 650; letter-spacing: 0.02em; }
-.hud .collapse { display: grid; place-items: center; width: 30px; height: 28px; padding: 0; }
+.hud h1 { flex: 1; margin: 0; font-size: calc(16px * var(--text-scale)); font-weight: 650; letter-spacing: 0.02em; }
+.hud .collapse { display: grid; place-items: center; width: calc(30px * var(--text-scale)); height: calc(28px * var(--text-scale)); padding: 0; }
 /* closed: the panel around its gear alone, the gear where it sits in the open panel */
 .hud.collapsed header { margin-bottom: 0; }
 
-.stats { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.stats { margin: 0 0 10px; color: var(--muted); font-size: calc(12.5px * var(--text-scale)); font-variant-numeric: tabular-nums; }
 
 button {
   font: inherit;
@@ -75,7 +76,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.14);
   text-align: left;
-  font-size: 14.5px;
+  font-size: calc(14.5px * var(--text-scale));
 }
 .menu-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.4); }
 .menu-btn:disabled { opacity: 0.45; cursor: default; }
@@ -85,8 +86,12 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn .label { display: flex; flex: 1; gap: 18px; justify-content: space-between; min-width: 0; white-space: nowrap; line-height: 1.25; }
 .menu-btn .name { flex: none; }
 .menu-btn .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+/* a slider (Accessibility): its name and value, then the track */
+.menu-btn.menu-slider { cursor: default; }
+.menu-slider input[type='range'] { flex: none; width: calc(120px * var(--text-scale)); margin: 0; accent-color: #6f8dff; cursor: pointer; }
+.menu-sizer .menu-slider input[type='range'] { visibility: hidden; }
 /* a field to type into, in a button's shape */
-.menu-input { min-width: 0; font: inherit; font-size: 13px; color: var(--text); background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.4); user-select: text; }
+.menu-input { min-width: 0; font: inherit; font-size: calc(13px * var(--text-scale)); color: var(--text); background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.4); user-select: text; }
 .menu-input:focus { outline: 2px solid rgba(150, 175, 255, 0.9); outline-offset: 0; }
 /* buttons sharing a row, in equal columns */
 .menu-row { display: grid; gap: 8px; }
@@ -105,10 +110,10 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   background: rgba(0, 0, 0, 0.22);
 }
 /* a compact button: just its label, centred */
-.menu-btn.compact { justify-content: center; gap: 0; padding: 4px 6px; font-size: 13.5px; }
+.menu-btn.compact { justify-content: center; gap: 0; padding: 4px 6px; font-size: calc(13.5px * var(--text-scale)); }
 .menu-btn.compact .option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* a smaller button, for several sharing a row */
-.menu-btn.small { gap: 6px; padding: 4px 8px; font-size: 13px; }
+.menu-btn.small { gap: 6px; padding: 4px 8px; font-size: calc(13px * var(--text-scale)); }
 .menu-btn.small .label { gap: 8px; }
 /* the progression's playing chord */
 .menu-btn.current { background: rgba(80, 110, 255, 0.4); border-color: rgba(150, 175, 255, 0.85); }
@@ -127,7 +132,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   border-radius: 10px;
   background: rgba(40, 52, 110, 0.95);
   color: #fff;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   white-space: nowrap;
   pointer-events: none;
 }
@@ -135,7 +140,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .icon { display: inline-flex; flex: none; align-items: center; line-height: 0; }
 .icon svg { display: block; }
 
-.note { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.note { margin: 8px 0 0; color: var(--muted); font-size: calc(12px * var(--text-scale)); line-height: 1.45; }
 
 .note.error { color: #ff9b8a; }
 
@@ -186,7 +191,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.1);
   text-align: left;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
 }
 .menu-option:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.4); }
 /* a choice this device can't have */

@@ -157,25 +157,26 @@ function touchesPanel(panel, world, reach) {
   return Math.abs(_local.z) < r && Math.abs(_local.x) < width / 2 + r && Math.abs(_local.y) < height / 2 + r;
 }
 
-/** How tall the panel stands docked on a controller (m): what it shows now, at DOCK_SCALE. */
-function dockedHeight(panel) {
-  return panel.children.find((o) => o.isMesh).geometry.parameters.height * DOCK_SCALE;
+/** How tall the panel stands docked on a controller (m): what it shows now, at DOCK_SCALE (× Text Size, `text`). */
+function dockedHeight(panel, text) {
+  return panel.children.find((o) => o.isMesh).geometry.parameters.height * DOCK_SCALE * text;
 }
 
 /**
  * The panel's pose docked on a controller, in the controller's target-ray
  * space: the bottom middle of what it shows now (a page, or just the gear) at
  * DOCK_ANCHOR, `lift` metres up its face (above the panels stacked under it),
- * tilted by DOCK_TILT, at DOCK_SCALE.
+ * tilted by DOCK_TILT, at DOCK_SCALE (× Text Size, `text`).
  */
-function controllerDockOffset(panel, lift = 0) {
+function controllerDockOffset(panel, lift, text) {
   const mesh = panel.children.find((o) => o.isMesh);
   const { height } = mesh.geometry.parameters;
+  const scale = DOCK_SCALE * text;
   return _dockPose
     .makeTranslation(DOCK_ANCHOR.x, DOCK_ANCHOR.y, DOCK_ANCHOR.z)
     .multiply(_tilt)
     .multiply(_step.makeTranslation(0, lift, 0))
-    .multiply(_step.makeScale(DOCK_SCALE, DOCK_SCALE, DOCK_SCALE))
+    .multiply(_step.makeScale(scale, scale, scale))
     .multiply(_step.makeTranslation(-mesh.position.x, -(mesh.position.y - height / 2), 0));
 }
 
@@ -215,12 +216,12 @@ function carryByHands(object, holding, state) {
 /**
  * The panel's pose on the NeckFrame, in Fretboard space: against the outside
  * of the edge nearest its centre, facing the player, sliding along that edge
- * to where it was let go, and FREE_SCALE in size whatever the Fretboard's scale.
+ * to where it was let go, and FREE_SCALE (× Text Size, `text`) in size whatever the Fretboard's scale.
  */
-function frameDockOffset(board, strings, panel) {
+function frameDockOffset(board, strings, panel, text) {
   const { outerX, outerY } = frameSize(strings, board.scale.x);
   const { left, right, top, bottom } = panel.userData.bounds;
-  const s = FREE_SCALE / board.scale.x;
+  const s = (FREE_SCALE * text) / board.scale.x;
   const gap = DOCK_GAP / board.scale.x;
   const p = board.worldToLocal(_centre.setFromMatrixPosition(panel.matrixWorld));
   // slide within the edge's length, or centre on it if the panel is longer
@@ -255,13 +256,15 @@ function frameDockOffset(board, strings, panel) {
  * into `handles.current.toolTouching`, the FilterFrame knobs and switches
  * touched, pointed at or held into `handles.current.effectKnobs` and
  * `effectSwitches` (effect id -> true), what each free hand's ray points at
- * into `handles.current.aiming`, and the notes being bent into
+ * into `handles.current.aiming`, what each grip holds into `handles.current.gripping`
+ * (hand -> target), whose stick pushes and pulls it into `stickBusy`, and the notes being bent into
  * `handles.current.bending` (cell -> pull) and `bendingHands` (mallet: a hand
  * or 'pick:<id>' -> its cells). `panels` are [{ id, object, dock }], stacked
  * on a controller in that order from the top, with `object` the panel's ref
  * (a direct child of the XROrigin) and `dock.current.to` where it's docked:
  * 'left', 'right', 'frame' or null (free), and `placed` whether the player
- * has moved it.
+ * has moved it. `textScale.current` is Accessibility's Text Size: the panels
+ * are that much bigger, docked or held.
  */
 export function useControllerGrips({
   board,
@@ -276,6 +279,7 @@ export function useControllerGrips({
   removePick,
   onChord,
   panels,
+  textScale,
   origin,
   strings,
   handles,
@@ -308,12 +312,14 @@ export function useControllerGrips({
       handles.current.effectKnobs = {};
       handles.current.effectSwitches = {};
       handles.current.stickBusy = {};
+      handles.current.gripping = {};
       triggerKnob.current = {};
       return;
     }
     const controllers = readControllers(frame, referenceSpace, origin.current);
     const fretboard = board.current;
     const objects = { board: fretboard, chords: chordFrame.current, tools: toolFrame.current, filter: filterFrame.current };
+    const text = textScale?.current ?? 1;
     const panelList = panels.filter((p) => p.object.current).map((p) => ({ id: p.id, object: p.object.current, dock: p.dock.current }));
     const panelById = new Map(panelList.map((p) => [p.id, p]));
     const shownPanels = panelList.filter((p) => isShown(p.object));
@@ -334,6 +340,7 @@ export function useControllerGrips({
     const switchTouching = {}; // effect -> a tip is on its switch, or a ray at it
     const aimHits = [];
     const stickBusy = {}; // hand -> its grip holds something its stick pushes and pulls
+    const gripping = {}; // hand -> what its grip holds: 'menu' (a panel), 'pick', 'knob', 'note' or a frame
 
     // the panels start on the left controller and the first pick on the right (or whichever there is), until moved
     for (const { dock } of panelList) if (!dock.to && !dock.placed && (controllers.left || controllers.right)) dock.to = controllers.left ? 'left' : 'right';
@@ -597,7 +604,7 @@ export function useControllerGrips({
           const { object: panel, dock } = heldPanel;
           if (grab.zone === 'frame') {
             fretboard.updateWorldMatrix(true, false);
-            dock.offset = frameDockOffset(fretboard, strings, panel);
+            dock.offset = frameDockOffset(fretboard, strings, panel, text);
             pulse(c.gamepad, FRAME_DOCK_PULSE);
           } else {
             pulse(controllers[grab.zone].gamepad, DOCK_PULSE);
@@ -659,7 +666,7 @@ export function useControllerGrips({
             offset: gripInverse.clone().multiply(panel.matrixWorld),
             point: take.point.clone().applyMatrix4(gripInverse), // grows about where it was taken, in grip space
             size: 1,
-            grow: FREE_SCALE / _scale.setFromMatrixScale(panel.matrixWorld).x,
+            grow: (FREE_SCALE * text) / _scale.setFromMatrixScale(panel.matrixWorld).x,
             zone: null,
           };
         } else if (take?.target === 'note') {
@@ -681,6 +688,7 @@ export function useControllerGrips({
       // the stick pushes and pulls a frame or pick held in this hand alone: its offset from the grip shifts along the ray
       const carriedBy = FRAMES.includes(grab.target) ? carried.current[grab.target] : grab.target === 'pick' ? carried.current[`pick:${grab.id}`] : null;
       if (FRAMES.includes(grab.target) || grab.target === 'pick' || grab.target === 'menu') stickBusy[hand] = true;
+      if (grab.target !== 'none') gripping[hand] = grab.target;
       if (carriedBy?.oneHand?.hand === hand) {
         const u = pushStep(c, _centre.setFromMatrixPosition(carriedBy.oneHand.offset).length(), dt);
         if (u) carriedBy.oneHand.offset.premultiply(_step.makeTranslation(u.x, u.y, u.z));
@@ -726,6 +734,7 @@ export function useControllerGrips({
     );
     handles.current.aiming = aiming;
     handles.current.stickBusy = stickBusy;
+    handles.current.gripping = gripping;
     handles.current.toolTouching = flags(toolTouching);
     handles.current.effectKnobs = knobTouching;
     handles.current.effectSwitches = switchTouching;
@@ -777,8 +786,8 @@ export function useControllerGrips({
       } else if (dock.to === 'left' || dock.to === 'right') {
         const c = controllers[dock.to];
         panel.visible = Boolean(c);
-        if (c) carry(panel, c.rayMatrix, controllerDockOffset(panel, lift[dock.to]));
-        lift[dock.to] += dockedHeight(panel) + STACK_GAP;
+        if (c) carry(panel, c.rayMatrix, controllerDockOffset(panel, lift[dock.to], text));
+        lift[dock.to] += dockedHeight(panel, text) + STACK_GAP;
         // flying there after a triple tap: between where it set off and its dock, eased
         const t = dock.fly && c ? (now - dock.fly.t0) / FLY : 1;
         if (t < 1) {

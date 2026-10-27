@@ -9,6 +9,7 @@ import { useControllerGrips } from './Grab.jsx';
 import { Pick } from './Pick.jsx';
 import { ChordFrame, FilterFrame, ToolFrame, chordFrameOffset, filterFrameOffsetY, toolFrameOffset } from './SideFrames.jsx';
 import { PX_M, XRMenuPanel, XRViewPanel } from './XRMenuPanel.jsx';
+import { ControllerGuide } from './ControllerGuide.jsx';
 import { EYE_SEPARATION, SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
 import { CameraBackground, CardboardRig } from './Cardboard.jsx';
@@ -38,6 +39,8 @@ export const ORBIT_TARGET = [-0.5, 1, -0.5];
 const MENU_POSITION = [-0.65, 1.05, 0.05];
 const MENU_ROTATION = [0, 0.9, 0];
 const VIEW_POSITION = [-0.65, 0.68, 0.05]; // the View panel, under it
+/** The Controller Guide's grip label while it holds something other than a panel, pick or frame. */
+const GRIP_HELD = { note: 'Let go to stop bending', knob: 'Let go of the knob' };
 // a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
 const PHONE_STEREO_MENU_SCALE = 1.5;
 // The first pick (XR: Headset only) starts docked on the right controller;
@@ -63,7 +66,7 @@ const STEREO_MENU_CSS_PX = 44 / 84;
 const _menuCorner = new THREE.Vector3();
 
 /** The panel before the camera in a windowed 3D view, picked and scrolled by the mouse. */
-function StereoMenu({ menu }) {
+function StereoMenu({ menu, textSize }) {
   const group = useRef(null);
   const controls = useThree((s) => s.controls);
   // the orbit controls leave the mouse to the panel while it's over it (a drag, the wheel)
@@ -81,7 +84,7 @@ function StereoMenu({ menu }) {
     const margin = STEREO_MENU_MARGIN * metresPerCssPx;
     // shrunk to fit a small or narrow window: at most the view's height, or half its width
     const scale = Math.min(
-      (STEREO_MENU_CSS_PX * metresPerCssPx) / PX_M,
+      (STEREO_MENU_CSS_PX * textSize * metresPerCssPx) / PX_M, // (Text Size: as the page's panel grows)
       (2 * halfH - 2 * margin) / (bounds.top - bounds.bottom),
       (halfW - margin) / (bounds.right - bounds.left),
     );
@@ -383,6 +386,10 @@ export default function Scene({
   );
   // hands on the frames, and touching and holding the picks: see Touch.jsx and Grab.jsx
   const handles = useRef({ touching: {}, holding: {}, frames: {}, picks: {} });
+  // Accessibility → Text Size: the XR panels that much bigger (see Grab.jsx), and the Controller Guide's labels
+  const textScale = useRef(state.textSize);
+  textScale.current = state.textSize;
+  const panelScale = state.textSize * (phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1);
   const strings = cells.length / FRETS;
   // where the FilterFrame first appears: fixed, so a new tuning never moves it out from under a hand
   const [filterFrameStart] = useState(() => filterFramePosition(strings));
@@ -460,6 +467,20 @@ export default function Scene({
     }
   }, [inSession, hasControllers, panels]);
 
+  // the Controller Guide: what each controller's parts do now, by what its grip holds
+  const guideTexts = useCallback(
+    (hand) => {
+      const held = handles.current.gripping?.[hand];
+      return {
+        'xr-standard-trigger': 'Select · slide\nHeld: every note sounds',
+        'xr-standard-squeeze': held ? (GRIP_HELD[held] ?? 'Let go: drop, or dock') : 'Grab · bend a note\n×2: Dock / undock panels\n×3: Summon panels',
+        'xr-standard-thumbstick': handles.current.stickBusy?.[hand] ? '↕ Push / pull' : hand === 'left' ? 'Move' : 'Turn\nOn the menu: ↕ Scroll',
+        menu: hand === 'left' ? 'Leave XR' : '',
+      };
+    },
+    [handles],
+  );
+
   return (
     <>
       {cameraPassthrough && !cameraFailed ? (
@@ -475,7 +496,7 @@ export default function Scene({
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {(state.view === 'sbs' || state.view === 'interlaced') && !immersive && <StereoMenu menu={menu} />}
+      {(state.view === 'sbs' || state.view === 'interlaced') && !immersive && <StereoMenu menu={menu} textSize={state.textSize} />}
       {phoneStereo && <PhoneStereoXR />}
       {phoneStereo && state.passthrough && (
         <PhoneStereoCameraFeed
@@ -554,6 +575,7 @@ export default function Scene({
         removePick={removePick}
         onChord={onChord}
         panels={panels}
+        textScale={textScale}
         strings={strings}
         handles={handles}
         onExitXR={onExitXR}
@@ -566,7 +588,7 @@ export default function Scene({
             stickBusy={(hand) => handles.current.stickBusy?.[hand]}
             position={MENU_POSITION}
             rotation={MENU_ROTATION}
-            scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
+            scale={panelScale}
           />
         )}
         {immersive && !screenMenu && (
@@ -575,11 +597,12 @@ export default function Scene({
             onSelect={onExitXR}
             position={VIEW_POSITION}
             rotation={MENU_ROTATION}
-            scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
+            scale={panelScale}
           />
         )}
       </Player>
       {immersive && !hasControllers && <GazeReticle />}
+      {inSession && <ControllerGuide on={state.controllerGuide} textsOf={guideTexts} scale={state.textSize} />}
       {state.handheld ? (
         <CardboardRig split={state.stereo} />
       ) : (

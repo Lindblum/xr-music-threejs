@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { iconSvg } from './Icon.jsx';
-import { menuBlocks, rowSpans, splitLabel } from './menu.js';
+import { menuBlocks, rowSpans, snapToStep, splitLabel } from './menu.js';
 import { useGazeTarget } from './Gaze.jsx';
 
 // The options panel in XR. It draws the same menu model as the windowed
@@ -17,6 +17,8 @@ import { useGazeTarget } from './Gaze.jsx';
 // the panel (the pointer stays captured) or double-clicked to remove it.
 // The windowed 3D views show it too, before the camera (see Scene.jsx), with
 // `overlay` drawing it over everything and the mouse wheel scrolling it.
+// A slider (Accessibility) is set by pressing on it and dragging (`onSlide(id,
+// value)`), or by the gaze resting on its track.
 
 const W = 1000; // canvas px of the reference width...
 const WIDTH_M = 0.44; // ...which is this many metres: sets the text size in XR
@@ -143,6 +145,11 @@ const _local = new THREE.Vector3();
 const SMALL_FONT = `500 30px ${FONT}`; // a small button, for several sharing a row
 const SMALL_VALUE_GAP = 20;
 const SMALL_GAP = 16; // between a small button's text and its chevron
+// a slider: its track on the right of its button, the knob this round, the value's text this far before it
+const SLIDER_TRACK = 240;
+const SLIDER_KNOB = 17;
+const SLIDER_GAP = 30;
+const SLIDE_PREFIX = 'slide:'; // the gaze on a slider's track: "slide:<id>:<value>"
 
 let measureCtx;
 function textWidth(text, font) {
@@ -162,8 +169,25 @@ function labelWidth(label, small) {
   return value ? textWidth(`${name}:`, font) + valueGap + textWidth(value, font) : textWidth(name, font);
 }
 
-const buttonWidth = (label, { icon = true, small = false, trailing = true } = {}) =>
-  INSET + (icon ? ICON + ICON_GAP : 0) + labelWidth(label, small) + (trailing ? textStyle(small).gap + TRAILING : 0) + INSET;
+const buttonWidth = (label, { icon = true, small = false, trailing = true, slider = false } = {}) =>
+  INSET +
+  (icon ? ICON + ICON_GAP : 0) +
+  labelWidth(label, small) +
+  (trailing ? textStyle(small).gap + TRAILING : 0) +
+  (slider ? SLIDER_GAP + SLIDER_TRACK + 2 * SLIDER_KNOB : 0) +
+  INSET;
+
+/** Slider button `r`'s track: its ends (canvas px, the knob's centre at min and max) and its range. */
+function sliderTrack(r) {
+  const x1 = r.x + r.w - INSET - SLIDER_KNOB;
+  return { x0: x1 - SLIDER_TRACK, x1, ...r.item.slider };
+}
+
+/** The value slider button `r` takes with the pointer at `px`: along its track, on a step. */
+function sliderValueAt(r, px) {
+  const t = sliderTrack(r);
+  return snapToStep(t.min + ((px - t.x0) / (t.x1 - t.x0)) * (t.max - t.min), t);
+}
 const compactWidth = (label) => 2 * COMPACT_INSET + textWidth(label, COMPACT_FONT);
 
 /**
@@ -173,8 +197,8 @@ const compactWidth = (label) => 2 * COMPACT_INSET + textWidth(label, COMPACT_FON
 function entryWidth(entry) {
   if (typeof entry === 'string') return buttonWidth(entry);
   const share = Math.max(
-    ...entry.row.map(({ text, span, icon, trailing }) =>
-      (entry.compact ? compactWidth(text) : buttonWidth(text, { icon, small: entry.small, trailing })) / span,
+    ...entry.row.map(({ text, span, icon, trailing, slider }) =>
+      (entry.compact ? compactWidth(text) : buttonWidth(text, { icon, small: entry.small, trailing, slider })) / span,
     ),
   );
   const shares = entry.row.reduce((sum, { span }) => sum + span, 0);
@@ -298,7 +322,7 @@ function drawButtonFrame(ctx, r, { hot, disabled, info, current, color, dim, bea
   ctx.stroke();
 }
 
-export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect, onQueueEdit, overlay = false, stickBusy, groupRef, ...groupProps }) {
+export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect, onSlide, onQueueEdit, overlay = false, stickBusy, groupRef, ...groupProps }) {
   const mesh = useRef(null);
   const slab = useRef(null);
   const [pointerKey, setPointerKey] = useState(null);
@@ -485,7 +509,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       const { item } = r;
       const dragged = dragging && item.queueIndex === dragging.from;
       drawButtonFrame(ctx, r, {
-        hot: item.id === hovered && !item.disabled && !item.info && !dragging,
+        hot: (item.id === hovered || hovered?.startsWith?.(`${SLIDE_PREFIX}${item.id}:`)) && !item.disabled && !item.info && !dragging,
         disabled: item.disabled,
         info: item.info,
         current: item.current,
@@ -535,8 +559,31 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       const style = textStyle(item.small);
       ctx.fillStyle = '#ffffff';
       ctx.font = style.font;
-      // the name on the left, the value against the right edge
+      // the name on the left, the value against the right edge (a slider's, against its track)
       let right = r.x + r.w - INSET;
+      if (item.slider) {
+        const t = sliderTrack(r);
+        const kx = t.x0 + ((t.value - t.min) / (t.max - t.min)) * (t.x1 - t.x0);
+        const cy = r.y + r.h / 2;
+        ctx.lineCap = 'round';
+        ctx.lineWidth = 10;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.beginPath();
+        ctx.moveTo(t.x0, cy);
+        ctx.lineTo(t.x1, cy);
+        ctx.stroke();
+        ctx.strokeStyle = '#6f8dff';
+        ctx.beginPath();
+        ctx.moveTo(t.x0, cy);
+        ctx.lineTo(kx, cy);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(kx, cy, SLIDER_KNOB, 0, Math.PI * 2);
+        ctx.fill();
+        right = t.x0 - SLIDER_GAP;
+      }
       const trailing = trailingIcon(item);
       if (trailing) {
         const icon = iconImage(trailing, redraw);
@@ -611,9 +658,18 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     if (open && (py < clipTop || py > clipBottom)) return null;
     if (open) py += scrolled;
     const r = rects.find(inside);
-    return r && !r.item?.disabled && !r.item?.info && !r.option?.disabled ? r.id : null;
+    if (!r || r.item?.disabled || r.item?.info || r.option?.disabled) return null;
+    if (r.item?.slider && px >= sliderTrack(r).x0 - SLIDER_GAP) return `${SLIDE_PREFIX}${r.id}:${sliderValueAt(r, px)}`;
+    return r.id;
   };
-  useGazeTarget(mesh, onSelect, setGazeKey, pick);
+  /** A key picked by the gaze: a slider set, or a button chosen. */
+  const activate = (key) => {
+    if (!key.startsWith(SLIDE_PREFIX)) return onSelect(key);
+    const [id, value] = key.slice(SLIDE_PREFIX.length).split(':');
+    onSlide?.(id, Number(value));
+  };
+  useGazeTarget(mesh, activate, setGazeKey, pick);
+  const sliding = useRef(null); // the slider rect being dragged, while it is
   /** Whether a pointer event is on the resize handle. */
   const atHandle = (e) => Boolean(e.uv) && onHandle(e.uv.x * width, (1 - e.uv.y) * height);
   const resizedAt = useRef(-Infinity); // when a resize ended: the click that follows isn't one
@@ -634,6 +690,18 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     return { outside: false, to: frames.some((f) => f.group === 'queue' && within(f)) ? chips.length - 1 : null };
   };
   const queuedAt = (e) => rects.find((r) => r.id === pick(e))?.item;
+  /** The slider button under pointer event `e`, if there is one. */
+  const sliderAt = (e) => {
+    const key = pick(e);
+    const id = key?.startsWith(SLIDE_PREFIX) ? key.slice(SLIDE_PREFIX.length).split(':')[0] : key;
+    return rects.find((r) => r.id === id && r.item?.slider) ?? null;
+  };
+  /** Slides the dragged slider to where pointer event `e` is (off its button too, on the captured plane). */
+  const slideTo = (e) => {
+    const r = sliding.current;
+    const value = sliderValueAt(r, toCanvas(e).px);
+    if (value !== r.item.slider.value) onSlide?.(r.id, value);
+  };
 
   return (
     <group ref={groupRef} userData={{ bounds }} {...groupProps}>
@@ -657,6 +725,14 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
             resizing.current = { w: width - grab.w, h: height - grab.h };
             return;
           }
+          const slider = sliderAt(e);
+          if (slider) {
+            // a slider: held on to, so it slides as the pointer moves, off the panel too
+            e.stopPropagation();
+            mesh.current.setPointerCapture?.(e.pointerId);
+            sliding.current = slider;
+            return slideTo(e);
+          }
           const item = queuedAt(e);
           if (item?.queueIndex == null) return;
           // a queued chord: hold on to the pointer, so a drag carries on off the panel
@@ -671,6 +747,10 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
             setPointerKey(RESIZE_KEY);
             return resizeTo(e);
           }
+          if (sliding.current) {
+            e.stopPropagation();
+            return slideTo(e);
+          }
           setPointerKey(atHandle(e) ? RESIZE_KEY : pick(e));
           if (!drag) return;
           const { px, py } = toCanvas(e);
@@ -683,6 +763,11 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
             savePanelSize(resizeTo(e));
             resizing.current = null;
             resizedAt.current = performance.now();
+            return;
+          }
+          if (sliding.current) {
+            mesh.current.releasePointerCapture?.(e.pointerId);
+            sliding.current = null;
             return;
           }
           if (!drag) return;
@@ -716,7 +801,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
             return;
           }
           const key = pick(e);
-          if (key == null) return;
+          if (key == null || sliderAt(e)) return; // (a slider is set as it's pressed)
           e.stopPropagation();
           // which controller (or hand) chose it, for choices that belong to one (an instrument)
           onSelect(key, { hand: e.pointerState?.inputSource?.handedness });

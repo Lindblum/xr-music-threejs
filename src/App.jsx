@@ -33,7 +33,11 @@ import {
   rowSpans,
   possibleLabels,
   splitLabel,
+  TEXT_SIZE,
+  VIBRATION,
+  snapToStep,
 } from './menu.js';
+import { setVibration } from './Touch.jsx';
 
 // View Mode: Normal, 3D: SBS (half side-by-side, for 3D TVs and projectors)
 // and 3D: Interlaced (alternate rows, for passive 3D monitors) are windowed.
@@ -107,6 +111,9 @@ function useMusicState() {
   const [velocity, setVelocity] = useState(saved.velocity); // notes as loud as they're struck hard
   const [playOnSelect, setPlayOnSelect] = useState(saved.playOnSelect); // played on selecting a chord: 'off' | 'root' | 'chord'
   const [background, setBackground] = useState(saved.background); // 'solid' | 'skybox' | 'passthrough'
+  const [textSize, setTextSize] = useState(saved.textSize); // Accessibility: the panels' text and icons, a multiplier
+  const [vibration, setVibrationAmount] = useState(saved.vibration); // ...the controllers' haptics (see Touch.jsx)
+  const [controllerGuide, setControllerGuide] = useState(saved.controllerGuide); // ...XR labels on the controllers' buttons
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [sections, setSections] = useState({ music: true }); // the menu's sections open: id -> true (see menu.js)
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
@@ -127,9 +134,9 @@ function useMusicState() {
   // the FilterFrame's sliders, effect id -> 0..1: they move every frame while dragged, so they're no state (see SideFrames.jsx)
   const effectAmounts = useRef(saved.effectAmounts);
   const latest = useRef(null); // the settings as they are now, for saving the sliders with
-  latest.current = { instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft, savedProgressions };
+  latest.current = { instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft, savedProgressions, textSize, vibration, controllerGuide };
   const save = useCallback(() => saveSettings({ ...latest.current, effectAmounts: effectAmounts.current }), []);
-  useEffect(save, [save, instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft]);
+  useEffect(save, [save, instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft, textSize, vibration, controllerGuide]);
   // a slider moved: heard at once, and saved once it's been still a moment
   const saveTimer = useRef(null);
   const slideEffect = useCallback(
@@ -157,6 +164,12 @@ function useMusicState() {
       /** Every effect switched out (see App for the sliders). */
       clearEffects: () => setEffects(DEFAULT_SETTINGS.effects),
       toggleVelocity: () => setVelocity((v) => !v),
+      toggleControllerGuide: () => setControllerGuide((v) => !v),
+      /** Accessibility's sliders: Text Size and Vibration (see menu.js), each kept on its steps. */
+      slide: (id, value) => {
+        if (id === 'textSize') setTextSize(snapToStep(value, TEXT_SIZE));
+        else if (id === 'vibration') setVibrationAmount(snapToStep(value, VIBRATION));
+      },
       toggleMenu: () => setMenuOpen((v) => !v),
       toggleSection: (id) => {
         setSections((s) => ({ ...s, [id]: !s[id] }));
@@ -279,6 +292,9 @@ function useMusicState() {
     savedProgressions,
     naming,
     saveError,
+    textSize,
+    vibration,
+    controllerGuide,
   };
   return [state, actions, { effectAmounts, slideEffect }];
 }
@@ -516,7 +532,7 @@ function useOptionDrag(onRemove) {
   return { drag: drag?.moved ? drag : null, handlers, wasDrag };
 }
 
-function MenuButton({ item, onSelect, onName, queue }) {
+function MenuButton({ item, onSelect, onSlide, onName, queue }) {
   const trailing = !item.compact && trailingIcon(item);
   const queued = item.queueIndex != null;
   const drag = queue?.drag;
@@ -550,6 +566,23 @@ function MenuButton({ item, onSelect, onName, queue }) {
           else if (e.key === 'Escape') onSelect('cancelSave');
         }}
       />
+    );
+  // a slider: its name and value, the track on the right
+  if (item.slider)
+    return (
+      <label className="menu-btn menu-slider" title={item.title}>
+        {item.icon && <Icon name={item.icon} />}
+        <Label text={item.label} />
+        <input
+          type="range"
+          min={item.slider.min}
+          max={item.slider.max}
+          step={item.slider.step}
+          value={item.slider.value}
+          aria-label={splitLabel(item.label).name}
+          onChange={(e) => onSlide?.(item.id, Number(e.target.value))}
+        />
+      </label>
     );
   // just text to read: a button's shape, not one
   if (item.info)
@@ -616,9 +649,9 @@ function MenuOptions({ dropdown, onSelect, optionDrag }) {
 }
 
 /** One row of buttons: a single button, or several in equal columns (see menuBlocks). */
-function MenuRow({ row, onSelect, onName, queue, optionDrag }) {
+function MenuRow({ row, onSelect, onSlide, onName, queue, optionDrag }) {
   const open = row.find((item) => item.dropdown?.open);
-  const buttons = row.map((item) => <MenuButton key={item.id} item={item} onSelect={onSelect} onName={onName} queue={queue} />);
+  const buttons = row.map((item) => <MenuButton key={item.id} item={item} onSelect={onSelect} onSlide={onSlide} onName={onName} queue={queue} />);
   return (
     <>
       {row[0].row == null ? (
@@ -634,21 +667,22 @@ function MenuRow({ row, onSelect, onName, queue, optionDrag }) {
 }
 
 /** A label's stand-in in the sizer: as wide as its button would be. */
-function SizerButton({ text, compact, icon = true, small, trailing = true }) {
+function SizerButton({ text, compact, icon = true, small, trailing = true, slider }) {
   return compact ? (
     <div className="menu-btn compact">
       <span className="option-label">{text}</span>
     </div>
   ) : (
-    <div className={`menu-btn${small ? ' small' : ''}`}>
+    <div className={`menu-btn${small ? ' small' : ''}${slider ? ' menu-slider' : ''}`}>
       {icon && <Icon name="instrument" />}
       <Label text={text} />
       {trailing && <Icon name="dropdown" />}
+      {slider && <input type="range" tabIndex={-1} readOnly />}
     </div>
   );
 }
 
-function MenuButtons({ items, labels, onSelect, onQueueEdit, onName, onRemoveOption }) {
+function MenuButtons({ items, labels, onSelect, onSlide, onQueueEdit, onName, onRemoveOption }) {
   const queue = useQueueDrag(onQueueEdit);
   const { drag } = queue;
   const optionDrag = useOptionDrag(onRemoveOption);
@@ -656,7 +690,7 @@ function MenuButtons({ items, labels, onSelect, onQueueEdit, onName, onRemoveOpt
     <div className="menu-items">
       {menuBlocks(items).map((block, b) => {
         const rows = block.rows.map((row) => (
-          <MenuRow key={row[0].id} row={row} onSelect={onSelect} onName={onName} queue={queue} optionDrag={optionDrag} />
+          <MenuRow key={row[0].id} row={row} onSelect={onSelect} onSlide={onSlide} onName={onName} queue={queue} optionDrag={optionDrag} />
         ));
         const content = block.group ? (
           <div key={`group-${block.group}`} className="menu-group" data-group={block.group}>
@@ -705,8 +739,8 @@ const MenuSizer = memo(function MenuSizer({ labels }) {
         // each column its shares: under max-content sizing, the grid makes every share as wide as the neediest column's
         const row = (
           <div className="menu-row sizer-row" style={{ gridTemplateColumns: entry.row.map(({ span }) => `${span}fr`).join(' ') }}>
-            {entry.row.map(({ text, icon, trailing }, i) => (
-              <SizerButton key={i} text={text} compact={entry.compact} icon={icon} small={entry.small} trailing={trailing} />
+            {entry.row.map(({ text, icon, trailing, slider }, i) => (
+              <SizerButton key={i} text={text} compact={entry.compact} icon={icon} small={entry.small} trailing={trailing} slider={slider} />
             ))}
           </div>
         );
@@ -812,7 +846,15 @@ function Hud({ menu, notes }) {
 
       <div className="hud-body">
         {menu.status && <p className="stats">{menu.status}</p>}
-        <MenuButtons items={menu.items} labels={menu.labels} onSelect={menu.onSelect} onQueueEdit={menu.onQueueEdit} onName={menu.onName} onRemoveOption={menu.onRemoveOption} />
+        <MenuButtons
+          items={menu.items}
+          labels={menu.labels}
+          onSelect={menu.onSelect}
+          onSlide={menu.onSlide}
+          onQueueEdit={menu.onQueueEdit}
+          onName={menu.onName}
+          onRemoveOption={menu.onRemoveOption}
+        />
         {notes.map(({ text, error }) => (
           <p key={text} className={error ? 'note error' : 'note'} role={error ? 'alert' : undefined}>
             {text}
@@ -845,6 +887,11 @@ export default function App() {
     playSelected(chord, latestSelect.current.mode, latestSelect.current.instrument);
   }, []);
   useDegreeKeys(chart, state.scale, chooseChord);
+  // Accessibility: the page's panel takes Text Size from this (see styles.css), XR's from Scene; Vibration scales every pulse
+  useEffect(() => document.documentElement.style.setProperty('--text-scale', String(state.textSize)), [state.textSize]);
+  useEffect(() => {
+    setVibration(state.vibration);
+  }, [state.vibration]);
   // with Play on Select, the progression plays each chord (or its root) as it lands on it, at the top of its measure
   const strum = useRef({});
   strum.current = { chord: currentChord, instrument: state.instrument, mode: state.playOnSelect };
@@ -1014,6 +1061,7 @@ export default function App() {
       }
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (id === 'velocity') actions.toggleVelocity();
+    else if (id === 'controllerGuide') actions.toggleControllerGuide();
     else if (id === 'play') player.toggle();
     else if (id.startsWith(CHORD_PREFIX)) {
       const index = Number(id.slice(CHORD_PREFIX.length));
@@ -1076,6 +1124,7 @@ export default function App() {
     open: state.menuOpen,
     items: menuItems({ ...state, view, player, analysis }, env),
     onSelect,
+    onSlide: actions.slide,
     onQueueEdit,
     onName: actions.nameProgression,
     // a saved progression dragged out of Load's list ("pick:load:<index>")

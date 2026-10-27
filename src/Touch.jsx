@@ -69,9 +69,14 @@ function readMallets(frame, referenceSpace, origin) {
   return mallets;
 }
 
-/** A haptic pulse [strength 0..1, ms] on `gamepad`'s first actuator, if it has one. */
+// Accessibility → Vibration: every pulse this much stronger (0: none; 1: as made), up to the most a controller does
+let vibration = 1;
+export const setVibration = (v) => (vibration = v);
+
+/** A haptic pulse [strength 0..1, ms] on `gamepad`'s first actuator, if it has one (scaled by Vibration). */
 export function pulse(gamepad, [strength, ms]) {
-  gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms)?.catch?.(() => {});
+  const s = Math.min(1, strength * vibration);
+  if (s > 0) gamepad?.hapticActuators?.[0]?.pulse?.(s, ms)?.catch?.(() => {});
 }
 
 /**

@@ -5,7 +5,7 @@
 
 import { EFFECTS, INSTRUMENTS } from './audio.js';
 import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
-import { BACKGROUNDS, BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE } from './menu.js';
+import { BACKGROUNDS, BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE, TEXT_SIZE, VIBRATION, snapToStep } from './menu.js';
 
 const COOKIE = 'xr-music-settings';
 const MAX_AGE = 60 * 60 * 24 * 365; // a year, renewed on every change
@@ -27,6 +27,9 @@ export const DEFAULT_SETTINGS = {
   beatsPerMeasure: 4,
   progression: [], // chords: { root, type, modifier }, see music.js
   draft: { degree: 0, alteration: 0, type: 'maj', modifier: 'none' }, // the chord Add Chord adds
+  textSize: TEXT_SIZE.default, // Accessibility: the panels' text and icons, a multiplier
+  vibration: VIBRATION.default, // ...the controllers' haptics, 0 (off) to 2
+  controllerGuide: false, // ...XR labels on the controllers' buttons
 };
 
 // the effects in the order their sliders were once saved, as a plain list
@@ -34,6 +37,8 @@ const LEGACY_EFFECTS = ['comp', 'octave', 'autoWah', 'wah', 'fuzz', 'overdrive',
 
 const cookiePath = () => new URL('.', window.location.href).pathname;
 
+/** `v` if it's a number on `range`'s scale (see menu.js), else null. */
+const onScale = (v, range) => (typeof v === 'number' && v >= range.min && v <= range.max ? snapToStep(v, range) : null);
 const isRoot = (n) => Number.isInteger(n) && n >= 0 && n < 12;
 const isQuality = (c) => CHORD_TYPES.some((t) => t.id === c.type) && CHORD_MODIFIERS.some((m) => m.id === c.modifier);
 const isChord = (c) => c && isRoot(c.root) && isQuality(c);
@@ -78,6 +83,9 @@ export function loadSettings() {
     beatsPerMeasure: pick(BEATS_PER_MEASURE.includes(saved.beats), saved.beats, d.beatsPerMeasure),
     progression: Array.isArray(saved.progression) ? saved.progression.map(unpackChord).filter(isChord) : d.progression,
     draft: isDraft(draft) ? draft : d.draft,
+    textSize: onScale(saved.textSize, TEXT_SIZE) ?? d.textSize,
+    vibration: onScale(saved.vibration, VIBRATION) ?? d.vibration,
+    controllerGuide: Boolean(saved.controllerGuide),
   };
 }
 
@@ -99,6 +107,9 @@ export function saveSettings(s) {
     beats: s.beatsPerMeasure,
     progression: s.progression.map(packChord),
     draft: packDraft(s.draft),
+    textSize: s.textSize,
+    vibration: s.vibration,
+    controllerGuide: s.controllerGuide,
   });
   writeCookie(COOKIE, value);
 }

@@ -1,8 +1,8 @@
 // Options menu model shared by the windowed panel (DOM) and the XR panel
 // (drawn on a canvas): one page of buttons, each "Name: Value", in sections
-// (Analyze, Music, Video) that open and close in place, like dropdowns. A button
+// (Analyze, Music, Video, Accessibility) that open and close in place, like dropdowns. A button
 // cycles its setting or opens a dropdown list of choices beneath it (a
-// chevron on its right). Buttons can share a row, and a run of them can sit
+// chevron on its right), or is a slider. Buttons can share a row, and a run of them can sit
 // in a framed group (see menuBlocks).
 
 import { INSTRUMENTS, isSynth } from './audio.js';
@@ -145,6 +145,15 @@ export const PLAY_ON_SELECT = [
   { id: 'root', name: 'Chord Root' },
   { id: 'chord', name: 'Chord' },
 ];
+
+/** Accessibility → Text Size: a multiplier on the panels' text and icons (the page's, and XR's), 75% to 200%, as in grid-game-threejs. */
+export const TEXT_SIZE = Object.freeze({ min: 0.75, max: 2, step: 0.25, default: 1 });
+/** Accessibility → Vibration: how strong the controllers' haptics are, 0 (off) to 2 (1: as made; above, every buzz stronger, up to the most a controller does). */
+export const VIBRATION = Object.freeze({ min: 0, max: 2, step: 0.1, default: 1 });
+/** The sliders' ids: App sets one with `onSlide(id, value)`. */
+export const SLIDERS = ['textSize', 'vibration'];
+/** `v` on slider `range` ({ min, max, step }): within it, on a step (and no float dust: 0.3, not 0.30000000000000004). */
+export const snapToStep = (v, { min, max, step }) => Number((Math.round(Math.min(max, Math.max(min, v)) / step) * step).toFixed(4));
 
 /** A chord in the progression's queue: its button's id is this and its index. */
 export const CHORD_PREFIX = 'chord-';
@@ -496,6 +505,39 @@ function videoItems(state, env) {
   ];
 }
 
+/** A percentage, as the sliders show it. */
+const percent = (v) => `${Math.round(v * 100)}%`;
+
+/**
+ * The Accessibility section, as grid-game-threejs's: Text Size and Vibration
+ * (sliders), and Controller Guide (XR: labels beside each controller's
+ * buttons saying what they do now).
+ */
+function accessibilityItems(state) {
+  return [
+    {
+      id: 'textSize',
+      label: `Text Size: ${percent(state.textSize)}`,
+      icon: 'textSize',
+      title: "The panels' text and icons, on the page and in XR",
+      slider: { ...TEXT_SIZE, value: state.textSize },
+    },
+    {
+      id: 'vibration',
+      label: `Vibration: ${state.vibration > 0 ? percent(state.vibration) : 'Off'}`,
+      icon: state.vibration > 0 ? 'vibrationOn' : 'vibrationOff',
+      title: "How strongly the XR controllers buzz (100%: as made)",
+      slider: { ...VIBRATION, value: state.vibration },
+    },
+    {
+      id: 'controllerGuide',
+      label: `Controller Guide: ${state.controllerGuide ? 'On' : 'Off'}`,
+      icon: state.controllerGuide ? 'controllerGuideOn' : 'controllerGuideOff',
+      title: "In XR, labels beside each controller's buttons saying what they do",
+    },
+  ];
+}
+
 /** Chords found by Analyze, to a row. */
 const ANALYSIS_COLUMNS = 4;
 
@@ -569,6 +611,7 @@ const SECTIONS = [
   { id: 'analyze', label: 'Analyze', icon: 'analyze', items: analyzeItems },
   { id: 'music', label: 'Music', icon: 'instrument', items: (state) => [...instrumentItems(state), ...progressionItems(state)] },
   { id: 'video', label: 'Video', icon: 'video', items: videoItems },
+  { id: 'accessibility', label: 'Accessibility', icon: 'accessibility', items: accessibilityItems },
 ];
 
 /**
@@ -581,6 +624,7 @@ const SECTIONS = [
  * with a chevron at the far right, like a dropdown's. `dropdown`: { open,
  * options: [{ id, label, selected }] }, drawn with a chevron at the far
  * right and, when open, its options beneath.
+ * `slider`: { min, max, step, value }, drawn with a track and knob on its right (see SLIDERS).
  * `row` / `span` / `cols` / `group`: see menuBlocks and rowSpans. `indent`: how many open sections it's in, each
  * setting it in a step from its header.
  * `sizeLabel`: the label the panels size for, if not `label`. `small`: a smaller font, for
@@ -621,6 +665,9 @@ const SAMPLE_STATE = {
   progression: [],
   draft: { degree: 0, alteration: 0, type: 'maj', modifier: 'none' },
   player: STOPPED,
+  textSize: TEXT_SIZE.default,
+  vibration: VIBRATION.default,
+  controllerGuide: false,
 };
 export const MENU_ROWS = menuItems({ ...SAMPLE_STATE, sections: ALL_OPEN }, {}).length;
 
@@ -649,6 +696,11 @@ export function possibleLabels(env) {
     ...QUANTIZE.map((q) => ({ quantize: q.division })),
     ...PLAY_ON_SELECT.map((p) => ({ playOnSelect: p.id })),
     { velocity: true },
+    { controllerGuide: true },
+    { textSize: TEXT_SIZE.min },
+    { textSize: TEXT_SIZE.max },
+    { vibration: VIBRATION.min },
+    { vibration: VIBRATION.max },
     ...BPMS.map((bpm) => ({ bpm })),
     ...BEATS_PER_MEASURE.map((beatsPerMeasure) => ({ beatsPerMeasure })),
     // every chord Add Chord can show, and every Alteration
@@ -691,7 +743,7 @@ export function possibleLabels(env) {
           // a full row, as wide as it can get: short rows (the queue's last) are measured as if full
           const columns = rowSpans(row).map((span, i) => {
             const item = row[Math.min(i, row.length - 1)];
-            return { text: item.sizeLabel ?? item.label, span, icon: Boolean(item.icon), trailing: Boolean(item.dropdown || item.section) };
+            return { text: item.sizeLabel ?? item.label, span, icon: Boolean(item.icon), trailing: Boolean(item.dropdown || item.section), slider: Boolean(item.slider) };
           });
           rows.set(JSON.stringify(columns), {
             row: columns,

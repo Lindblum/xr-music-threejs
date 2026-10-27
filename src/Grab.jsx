@@ -193,9 +193,10 @@ function dockedHeight(panel) {
 
 /**
  * The panel's pose docked on a controller, in the controller's target-ray
- * space: the bottom middle of what it shows now (a page, or just the gear) at
- * DOCK_ANCHOR, `lift` metres up its face (above the panels stacked under it),
- * tilted by DOCK_TILT, at DOCK_SCALE.
+ * space: its bottom edge at DOCK_ANCHOR with its corner button (the gear, the
+ * View panel's) over the controller, so docked panels line up on their left
+ * edges and their buttons stand in one column; `lift` metres up its face
+ * (above the panels stacked under it), tilted by DOCK_TILT, at DOCK_SCALE.
  */
 function controllerDockOffset(panel, lift) {
   const mesh = panel.children.find((o) => o.isMesh);
@@ -205,7 +206,7 @@ function controllerDockOffset(panel, lift) {
     .multiply(_tilt)
     .multiply(_step.makeTranslation(0, lift, 0))
     .multiply(_step.makeScale(DOCK_SCALE, DOCK_SCALE, DOCK_SCALE))
-    .multiply(_step.makeTranslation(-mesh.position.x, -(mesh.position.y - height / 2), 0));
+    .multiply(_step.makeTranslation(-(panel.userData.toggleX ?? mesh.position.x), -(mesh.position.y - height / 2), 0));
 }
 
 /** Sets `object`'s world pose to `grip` · `offset`, whatever its parent. */

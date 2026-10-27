@@ -261,3 +261,4 @@ button[data-xr-hover] { background: rgba(255, 255, 255, 0.16); }
 .menu-option[data-xr-hover]:not(:disabled) { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.4); }
 .hud-resize[data-xr-hover] { opacity: 1; }
 .menu-track[data-xr-hover] .menu-track-knob { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5); }
+.hud.xr.panel-error { display: block; width: 360px; padding: 14px 16px; color: #ffb4a8; }

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -16,11 +16,15 @@ import { useGazeTarget } from './Gaze.jsx';
 // as :hover would. The right thumbstick (or the mouse wheel) scrolls whatever
 // scrolls under the pointer.
 //
-// The panel's origin is its top-left corner: it grows right and down.
+// The panel's origin is its top-left corner: it grows right and down. Its
+// face shows from the front only: from behind, its slab's back.
+// `userData.toggleX` is how far its corner button's middle is from its left
+// edge (metres), for lining docked panels up by those buttons (see Grab.jsx).
 
 /** Metres per CSS px in the scene (at scale 1): about the size the page's panel looks at arm's length. */
 export const CSS_PX_M = 0.0007;
 const RASTER_SCALE = 2; // texture px per CSS px
+const PAINT_TIMEOUT = 5000; // ms a painted image may take to load before the panel says it couldn't be drawn
 const OFFSCREEN_X = -100000; // where the hidden elements are laid out (CSS px)
 const OFFSCREEN_LIMIT = OFFSCREEN_X / 2; // a client point left of this is off the screen: a hidden element's, or nothing's
 const SLAB_DEPTH = 0.01; // m, in the world: the panel's thickness behind its face, as grid-game-threejs's panels
@@ -138,8 +142,15 @@ async function paint(element, canvas, w, h) {
   // (loaded, not decode()d: a headset's browser may never decode for a page it isn't showing, as in a session)
   const img = new Image();
   await new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = () => reject(new Error('the painted panel image failed to load'));
+    const late = setTimeout(() => reject(new Error('the painted panel image took too long to load')), PAINT_TIMEOUT);
+    img.onload = () => {
+      clearTimeout(late);
+      resolve();
+    };
+    img.onerror = () => {
+      clearTimeout(late);
+      reject(new Error('the painted panel image failed to load'));
+    };
     img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   });
   const width = Math.max(1, Math.round(w * RASTER_SCALE));
@@ -149,6 +160,32 @@ async function paint(element, canvas, w, h) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(img, 0, 0, width, height);
+  return resized;
+}
+
+/** When a panel can't be painted: a dark card saying why, on `canvas` (laid out `w` x `h` CSS px), so it shows; whether the canvas changed size. */
+function paintFailure(canvas, w, h, error) {
+  const width = Math.max(1, Math.round(w * RASTER_SCALE));
+  const height = Math.max(1, Math.round(h * RASTER_SCALE));
+  const resized = canvas.width !== width || canvas.height !== height;
+  if (resized) Object.assign(canvas, { width, height });
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(40, 14, 14, 0.95)';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#ffb4a8';
+  ctx.font = `${16 * RASTER_SCALE}px system-ui, sans-serif`;
+  ctx.textBaseline = 'top';
+  const words = `This panel couldn't be drawn: ${error?.message ?? error}`.split(' ');
+  let line = '';
+  let y = 12 * RASTER_SCALE;
+  for (const word of words) {
+    if (ctx.measureText(`${line} ${word}`).width > width - 24 * RASTER_SCALE && line) {
+      ctx.fillText(line, 12 * RASTER_SCALE, y);
+      line = word;
+      y += 22 * RASTER_SCALE;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  ctx.fillText(line, 12 * RASTER_SCALE, y);
   return resized;
 }
 
@@ -168,6 +205,22 @@ function slabGeometry(w, h, r) {
   shape.lineTo(-x1, -y1 + r);
   shape.absarc(-x1 + r, -y1 + r, r, Math.PI, Math.PI * 1.5);
   return new THREE.ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false, curveSegments: 6 });
+}
+
+/** A panel's content that throws: the panel says so, rather than showing nothing. */
+class PanelError extends Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error) {
+    console.warn('[xr-music] panel failed to render:', error);
+  }
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return <aside className="hud xr panel-error">This panel couldn't be shown: {String(error?.message ?? error)}</aside>;
+  }
 }
 
 /** Where pointer event `e` is on `mesh`'s plane: where it hit, or (off the mesh, captured) where its ray meets the plane. */
@@ -192,7 +245,7 @@ function eventPoint(e, mesh) {
 export function DomPanel({ children, overlay = false, stickBusy, onSource, groupRef, ...groupProps }) {
   const mesh = useRef(null);
   const slab = useRef(null);
-  const [size, setSize] = useState({ w: 1, h: 1 });
+  const [size, setSize] = useState({ w: 1, h: 1, toggle: 0 });
   const canvas = useMemo(() => document.createElement('canvas'), []);
   const texture = useMemo(() => {
     const t = new THREE.CanvasTexture(canvas);
@@ -224,55 +277,59 @@ export function DomPanel({ children, overlay = false, stickBusy, onSource, group
     };
   }, []);
   useLayoutEffect(() => {
-    root.current?.render(children);
+    root.current?.render(<PanelError>{children}</PanelError>);
   });
+  // painted from the scene's frame loop, which runs in a session (a headset's browser holds the page's own frames
+  // and timers back while it shows one), whenever the element has changed; until it has a size, every frame
+  const dirty = useRef(true);
+  const painting = useRef(false);
   useEffect(() => {
     if (!host) return;
-    let painting = false;
-    let again = false;
-    let frame = 0;
-    const repaint = async () => {
-      frame = 0;
-      if (painting) return void (again = true);
-      painting = true;
-      try {
-        const r = host.getBoundingClientRect();
-        if (r.width && r.height) {
-          setSize((s) => (s.w === r.width && s.h === r.height ? s : { w: r.width, h: r.height }));
-          // (a texture's size is fixed once made: a new size, a new one)
-          if (await paint(host, canvas, r.width, r.height)) texture.dispose();
-          texture.needsUpdate = true;
-        }
-      } catch (e) {
-        console.warn('[xr-music] panel paint failed:', e);
-      }
-      painting = false;
-      if (again) {
-        again = false;
-        schedule();
-      }
-    };
-    // (a timer, not an animation frame: a headset's browser stops the page's frames while a session shows)
-    const schedule = () => {
-      frame ||= setTimeout(repaint, 16);
-    };
-    const observer = new MutationObserver(schedule);
+    const mark = () => (dirty.current = true);
+    const observer = new MutationObserver(mark);
     observer.observe(host, { subtree: true, childList: true, attributes: true, characterData: true });
-    const resize = new ResizeObserver(schedule);
+    const resize = new ResizeObserver(mark);
     resize.observe(host);
-    host.addEventListener('scroll', schedule, true);
-    schedule();
+    host.addEventListener('scroll', mark, true);
+    mark();
     return () => {
       observer.disconnect();
       resize.disconnect();
-      host.removeEventListener('scroll', schedule, true);
-      clearTimeout(frame);
+      host.removeEventListener('scroll', mark, true);
     };
-  }, [host, canvas, texture]);
+  }, [host]);
+  const repaint = async () => {
+    painting.current = true;
+    const r = host.getBoundingClientRect();
+    if (!r.width || !r.height) {
+      dirty.current = true; // (not laid out yet: next frame)
+      painting.current = false;
+      return;
+    }
+    // (and its corner button's middle, from its left edge)
+    const button = host.querySelector('button.collapse')?.getBoundingClientRect();
+    const toggle = button ? button.left + button.width / 2 - r.left : 0;
+    setSize((s) => (s.w === r.width && s.h === r.height && s.toggle === toggle ? s : { w: r.width, h: r.height, toggle }));
+    try {
+      // (a texture's size is fixed once made: a new size, a new one)
+      if (await paint(host, canvas, r.width, r.height)) texture.dispose();
+    } catch (e) {
+      console.warn('[xr-music] panel paint failed:', e);
+      if (paintFailure(canvas, r.width, r.height, e)) texture.dispose();
+    }
+    texture.needsUpdate = true;
+    painting.current = false;
+  };
+  useFrame(() => {
+    if (!host || !dirty.current || painting.current) return;
+    dirty.current = false;
+    repaint();
+  });
 
   const w = size.w * CSS_PX_M;
   const h = size.h * CSS_PX_M;
   const bounds = useMemo(() => ({ left: 0, right: w, top: 0, bottom: -h }), [w, h]);
+  const toggleX = size.toggle * CSS_PX_M;
   const slabShape = useMemo(() => slabGeometry(w, h, SLAB_RADIUS * CSS_PX_M), [w, h]);
   useEffect(() => () => slabShape.dispose(), [slabShape]);
   // the slab keeps to SLAB_DEPTH in the world however the panel is scaled, running back from just behind the face
@@ -361,7 +418,7 @@ export function DomPanel({ children, overlay = false, stickBusy, onSource, group
   };
 
   return (
-    <group ref={groupRef} userData={{ bounds }} {...groupProps}>
+    <group ref={groupRef} userData={{ bounds, toggleX }} {...groupProps}>
       <mesh
         ref={mesh}
         position={[w / 2, -h / 2, 0]}
@@ -410,8 +467,7 @@ export function DomPanel({ children, overlay = false, stickBusy, onSource, group
         }}
       >
         <planeGeometry args={[w, h]} />
-        {/* both sides: it reads from behind too (mirrored), as when it's held or docked turned away */}
-        <meshBasicMaterial map={texture} transparent depthWrite={false} depthTest={!overlay} toneMapped={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial map={texture} transparent depthWrite={false} depthTest={!overlay} toneMapped={false} />
         {!overlay && (
           // (the face is what's pointed at; drawn first, behind it)
           <mesh ref={slab} geometry={slabShape} renderOrder={-1} raycast={() => null}>

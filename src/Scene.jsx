@@ -470,7 +470,7 @@ export default function Scene({
       return {
         'xr-standard-trigger': 'Select · slide\nHeld: every note sounds',
         'xr-standard-squeeze': held ? (GRIP_HELD[held] ?? 'Let go: drop, or dock') : 'Grab · bend a note\n×2: Dock / undock panels\n×3: Summon panels',
-        'xr-standard-thumbstick': handles.current.stickBusy?.[hand] ? '↕ Push / pull' : hand === 'left' ? 'Move' : 'Turn\nOn the menu: ↕ Scroll',
+        'xr-standard-thumbstick': handles.current.stickBusy?.[hand] ? '↕ Push / pull\n↔ Roll' : hand === 'left' ? 'Move' : 'Turn\nOn the menu: ↕ Scroll',
         menu: hand === 'left' ? 'Leave XR' : '',
       };
     },

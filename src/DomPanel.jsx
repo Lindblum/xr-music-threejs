@@ -135,9 +135,13 @@ async function paint(element, canvas, w, h) {
     `<foreignObject x="0" y="0" width="${w}" height="${h}">` +
     `<div xmlns="http://www.w3.org/1999/xhtml" style="${style}"><style><![CDATA[${pageStyles()}]]></style>${xml}</div>` +
     '</foreignObject></svg>';
+  // (loaded, not decode()d: a headset's browser may never decode for a page it isn't showing, as in a session)
   const img = new Image();
-  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  await img.decode();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error('the painted panel image failed to load'));
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
   const width = Math.max(1, Math.round(w * RASTER_SCALE));
   const height = Math.max(1, Math.round(h * RASTER_SCALE));
   const resized = canvas.width !== width || canvas.height !== height;
@@ -248,8 +252,9 @@ export function DomPanel({ children, overlay = false, stickBusy, onSource, group
         schedule();
       }
     };
+    // (a timer, not an animation frame: a headset's browser stops the page's frames while a session shows)
     const schedule = () => {
-      frame ||= requestAnimationFrame(repaint);
+      frame ||= setTimeout(repaint, 16);
     };
     const observer = new MutationObserver(schedule);
     observer.observe(host, { subtree: true, childList: true, attributes: true, characterData: true });
@@ -261,7 +266,7 @@ export function DomPanel({ children, overlay = false, stickBusy, onSource, group
       observer.disconnect();
       resize.disconnect();
       host.removeEventListener('scroll', schedule, true);
-      cancelAnimationFrame(frame);
+      clearTimeout(frame);
     };
   }, [host, canvas, texture]);
 

@@ -35,8 +35,10 @@ import { playClick } from './audio.js';
 //
 // While a grip holds the panel, a pick or a frame (in that hand alone), its
 // thumbstick pushes it away along the controller's ray (up) or reels it in
-// (down), faster the further off it is; meanwhile that stick neither moves
-// nor turns the player, nor scrolls the panel (handles.current.stickBusy).
+// (down), faster the further off it is, and rolls it about the ray (left /
+// right: right turns it clockwise as you look along the ray), as in
+// grid-game-threejs; meanwhile that stick neither moves nor turns the player,
+// nor scrolls the panel (handles.current.stickBusy).
 //
 // The ToolFrame's pick (see SideFrames.jsx), touched by a controller's sphere,
 // or pointed at with the trigger pulled, gives that controller a new pick,
@@ -107,6 +109,8 @@ const STICK_DEADZONE = 0.2;
 const PUSH_RATE = 1.5; // per second at full tilt, this share of the held thing's distance from the hand...
 const PUSH_MIN = 0.25; // ...but never slower than at this distance (m)
 const REEL_MIN = 0.05; // m from the hand: reeled in no nearer
+const THUMBSTICK_X = 2; // xr-standard gamepad axis: right is positive
+const ROLL_RATE = Math.PI; // rad per second a held thing rolls about the ray at full tilt
 
 const _tilt = new THREE.Matrix4().makeRotationX(DOCK_TILT);
 const _dockPose = new THREE.Matrix4();
@@ -140,6 +144,31 @@ function pushStep(c, dist, dt) {
   if (!step) return null;
   _gripTurn.setFromRotationMatrix(c.grip).invert();
   return _push.copy(c.ray.direction).applyQuaternion(_gripTurn).multiplyScalar(step);
+}
+
+const _gripInverse = new THREE.Matrix4();
+const _rollOrigin = new THREE.Vector3();
+const _rollAxis = new THREE.Vector3();
+const _roll = new THREE.Matrix4();
+const _rollTurn = new THREE.Matrix4();
+const _rollBack = new THREE.Matrix4();
+
+/**
+ * How far controller `c`'s thumbstick rolls what its grip holds about the
+ * controller's ray this frame: a turn in the grip's space (to apply to a
+ * grip-space offset, before it), or null with the stick at rest.
+ */
+function rollStep(c, dt) {
+  const x = c.gamepad.axes[THUMBSTICK_X] ?? 0;
+  if (Math.abs(x) < STICK_DEADZONE) return null;
+  _gripInverse.copy(c.grip).invert();
+  const o = _rollOrigin.copy(c.ray.origin).applyMatrix4(_gripInverse);
+  _gripTurn.setFromRotationMatrix(c.grip).invert();
+  const axis = _rollAxis.copy(c.ray.direction).applyQuaternion(_gripTurn).normalize();
+  return _roll
+    .makeTranslation(o.x, o.y, o.z)
+    .multiply(_rollTurn.makeRotationAxis(axis, x * ROLL_RATE * Math.min(dt, 0.1)))
+    .multiply(_rollBack.makeTranslation(-o.x, -o.y, -o.z));
 }
 
 function isShown(object) {
@@ -683,13 +712,15 @@ export function useControllerGrips({
         }
         grabs.current[hand] = grab;
       }
-      // the stick pushes and pulls a frame or pick held in this hand alone: its offset from the grip shifts along the ray
+      // the stick pushes and pulls a frame or pick held in this hand alone, and rolls it: its offset from the grip shifts along the ray, and turns about it
       const carriedBy = FRAMES.includes(grab.target) ? carried.current[grab.target] : grab.target === 'pick' ? carried.current[`pick:${grab.id}`] : null;
       if (FRAMES.includes(grab.target) || grab.target === 'pick' || grab.target === 'menu') stickBusy[hand] = true;
       if (grab.target !== 'none') gripping[hand] = grab.target;
       if (carriedBy?.oneHand?.hand === hand) {
         const u = pushStep(c, _centre.setFromMatrixPosition(carriedBy.oneHand.offset).length(), dt);
         if (u) carriedBy.oneHand.offset.premultiply(_step.makeTranslation(u.x, u.y, u.z));
+        const turn = rollStep(c, dt);
+        if (turn) carriedBy.oneHand.offset.premultiply(turn);
       }
       if (FRAMES.includes(grab.target)) holding[grab.target][hand] = c;
       else if (grab.target === 'pick') (pickHolding[grab.id] ??= {})[hand] = c;
@@ -707,11 +738,17 @@ export function useControllerGrips({
         grab.step = step;
       } else if (grab.target === 'menu' && panelById.has(grab.id)) {
         const panel = panelById.get(grab.id).object;
-        // keeps its pose in the hand, easing to full size about the point it was taken by; the stick moves both along the ray
+        // keeps its pose in the hand, easing to full size about the point it was taken by; the stick moves both along
+        // the ray, and turns both about it
         const u = pushStep(c, grab.point.length(), dt);
         if (u) {
           grab.offset.premultiply(_step.makeTranslation(u.x, u.y, u.z));
           grab.point.add(u);
+        }
+        const turn = rollStep(c, dt);
+        if (turn) {
+          grab.offset.premultiply(turn);
+          grab.point.applyMatrix4(turn);
         }
         grab.size += (grab.grow - grab.size) * (1 - Math.exp(-GROW_RATE * Math.min(dt, 0.1)));
         const { x, y, z } = grab.point;

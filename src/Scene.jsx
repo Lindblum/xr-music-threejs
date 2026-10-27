@@ -8,7 +8,8 @@ import { GazePlay, TouchPlay } from './Touch.jsx';
 import { useControllerGrips } from './Grab.jsx';
 import { Pick } from './Pick.jsx';
 import { ChordFrame, FilterFrame, ToolFrame, chordFrameOffset, filterFrameOffsetY, toolFrameOffset } from './SideFrames.jsx';
-import { PX_M, XRMenuPanel, XRViewPanel } from './XRMenuPanel.jsx';
+import { XRMenuPanel, XRViewPanel } from './XRMenuPanel.jsx';
+import { CSS_PX_M } from './DomPanel.jsx';
 import { ControllerGuide } from './ControllerGuide.jsx';
 import { EYE_SEPARATION, SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
@@ -36,9 +37,9 @@ const filterFramePosition = (strings) => [
 export const ORBIT_TARGET = [-0.5, 1, -0.5];
 // Without VR controllers (hand tracking, phones) the XR panel starts off to
 // the player's left, turned toward them, and travels with the player. Constants, so a re-render never undoes a move.
-const MENU_POSITION = [-0.65, 1.05, 0.05];
+const MENU_POSITION = [-0.78, 1.33, 0.22]; // its top-left corner
 const MENU_ROTATION = [0, 0.9, 0];
-const VIEW_POSITION = [-0.65, 0.68, 0.05]; // the View panel, under it
+const VIEW_POSITION = [-0.78, 0.66, 0.22]; // the View panel's, under it
 /** The Controller Guide's grip label while it holds something other than a panel, pick or frame. */
 const GRIP_HELD = { note: 'Let go to stop bending', knob: 'Let go of the knob' };
 // a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
@@ -61,12 +62,10 @@ const PICK_ROTATION = [0, -0.3, 0.25];
 // half width, as it does the whole scene, for the display to stretch back).
 const STEREO_MENU_DISTANCE = 1.5; // metres
 const STEREO_MENU_MARGIN = 12; // CSS px clear of the view's edges, as the page's panel
-// CSS px per canvas px (see XRMenuPanel) that matches the page's panel: its rows are 44 px apart (button and gap), the canvas's 84
-const STEREO_MENU_CSS_PX = 44 / 84;
 const _menuCorner = new THREE.Vector3();
 
 /** The panel before the camera in a windowed 3D view, picked and scrolled by the mouse. */
-function StereoMenu({ menu, textSize }) {
+function StereoMenu({ menu }) {
   const group = useRef(null);
   const controls = useThree((s) => s.controls);
   // the orbit controls leave the mouse to the panel while it's over it (a drag, the wheel)
@@ -84,7 +83,7 @@ function StereoMenu({ menu, textSize }) {
     const margin = STEREO_MENU_MARGIN * metresPerCssPx;
     // shrunk to fit a small or narrow window: at most the view's height, or half its width
     const scale = Math.min(
-      (STEREO_MENU_CSS_PX * textSize * metresPerCssPx) / PX_M, // (Text Size: as the page's panel grows)
+      metresPerCssPx / CSS_PX_M, // (a CSS px of the panel as one of the page's)
       (2 * halfH - 2 * margin) / (bounds.top - bounds.bottom),
       (halfW - margin) / (bounds.right - bounds.left),
     );
@@ -96,7 +95,7 @@ function StereoMenu({ menu, textSize }) {
   });
   return (
     <group onPointerOver={() => setOrbiting(false)} onPointerOut={() => setOrbiting(true)}>
-      <XRMenuPanel {...menu} overlay groupRef={group} />
+      <XRMenuPanel menu={menu} overlay groupRef={group} />
     </group>
   );
 }
@@ -386,10 +385,7 @@ export default function Scene({
   );
   // hands on the frames, and touching and holding the picks: see Touch.jsx and Grab.jsx
   const handles = useRef({ touching: {}, holding: {}, frames: {}, picks: {} });
-  // Accessibility → Text Size: the XR panels that much bigger (see Grab.jsx), and the Controller Guide's labels
-  const textScale = useRef(state.textSize);
-  textScale.current = state.textSize;
-  const panelScale = state.textSize * (phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1);
+  const panelScale = phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1;
   const strings = cells.length / FRETS;
   // where the FilterFrame first appears: fixed, so a new tuning never moves it out from under a hand
   const [filterFrameStart] = useState(() => filterFramePosition(strings));
@@ -496,7 +492,7 @@ export default function Scene({
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {(state.view === 'sbs' || state.view === 'interlaced') && !immersive && <StereoMenu menu={menu} textSize={state.textSize} />}
+      {(state.view === 'sbs' || state.view === 'interlaced') && !immersive && <StereoMenu menu={menu} />}
       {phoneStereo && <PhoneStereoXR />}
       {phoneStereo && state.passthrough && (
         <PhoneStereoCameraFeed
@@ -575,7 +571,6 @@ export default function Scene({
         removePick={removePick}
         onChord={onChord}
         panels={panels}
-        textScale={textScale}
         strings={strings}
         handles={handles}
         onExitXR={onExitXR}
@@ -583,7 +578,7 @@ export default function Scene({
         {/* with `screenMenu`, the menu is on the screen in front of the scene instead (see App.jsx) */}
         {immersive && !screenMenu && (
           <XRMenuPanel
-            {...menu}
+            menu={menu}
             groupRef={menuPanel}
             stickBusy={(hand) => handles.current.stickBusy?.[hand]}
             position={MENU_POSITION}

@@ -21,10 +21,21 @@ html, body, #root {
 
 canvas { display: block; touch-action: none; }
 
-.hud {
+/* the options panel, and the View panel beneath it (see App.jsx), in a column in the top-left corner */
+.hud-stack {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
   left: max(12px, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-height: calc(100dvh - 2 * max(12px, env(safe-area-inset-top)));
+}
+.hud {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
   width: max-content; /* as wide as the widest possible button (see .menu-sizer) */
   max-width: calc(100vw - 24px);
   padding: 14px 16px;
@@ -90,6 +101,11 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn.menu-slider { cursor: default; }
 .menu-slider input[type='range'] { flex: none; width: calc(120px * var(--text-scale)); margin: 0; accent-color: #6f8dff; cursor: pointer; }
 .menu-sizer .menu-slider input[type='range'] { visibility: hidden; }
+/* ...on a panel in the scene (see Menu.jsx), a track of the same size: dragged along, or pressed where it should go */
+.menu-track { position: relative; flex: none; width: calc(120px * var(--text-scale)); height: calc(16px * var(--text-scale)); cursor: pointer; touch-action: none; }
+.menu-track::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); }
+.menu-track-fill { position: absolute; left: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: #6f8dff; }
+.menu-track-knob { position: absolute; top: 50%; width: calc(14px * var(--text-scale)); height: calc(14px * var(--text-scale)); border-radius: 50%; background: #6f8dff; transform: translate(-50%, -50%); }
 /* a field to type into, in a button's shape */
 .menu-input { min-width: 0; font: inherit; font-size: calc(13px * var(--text-scale)); color: var(--text); background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.4); user-select: text; }
 .menu-input:focus { outline: 2px solid rgba(150, 175, 255, 0.9); outline-offset: 0; }
@@ -202,12 +218,12 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-option.selected { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.45); }
 .menu-option .option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* the panel never runs off the screen: its header stays, the buttons scroll */
+/* the panel never runs off the screen (the column it's in doesn't): its header stays, the buttons scroll */
 .hud {
   display: flex;
   flex-direction: column;
-  max-height: calc(100dvh - 2 * max(12px, env(safe-area-inset-top)));
 }
+.hud.collapsed { flex: none; }
 .hud header { flex: none; }
 .hud-body {
   flex: 1 1 auto; /* fills a height dragged taller than the buttons */
@@ -220,7 +236,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
-/* the corner grip that resizes the panel: a bracket in its inner bottom-right corner, as grid-game-threejs's */
+/* the corner grip that resizes the panel: three diagonal lines in its inner bottom-right corner */
 .hud-resize {
   position: absolute;
   z-index: 2;
@@ -231,8 +247,17 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   opacity: 0.45;
   cursor: nwse-resize;
   touch-action: none;
-  border-bottom: 2px solid var(--muted);
-  border-right: 2px solid var(--muted);
-  border-bottom-right-radius: 6px;
+  /* three diagonal lines in the corner */
+  background: linear-gradient(135deg, transparent 0 calc(33% - 1px), var(--muted) calc(33% - 1px) calc(33% + 1px), transparent calc(33% + 1px) calc(58% - 1px), var(--muted) calc(58% - 1px) calc(58% + 1px), transparent calc(58% + 1px) calc(83% - 1px), var(--muted) calc(83% - 1px) calc(83% + 1px), transparent calc(83% + 1px));
 }
 .hud-resize:hover { opacity: 1; }
+
+/* the panels in the scene (XR, and the windowed 3D views: see DomPanel.jsx): painted, so nothing behind them to blur,
+   a little more solid, as tall as about 57 cm before they scroll; what's pointed at lights as :hover would */
+.hud.xr { background: rgba(12, 16, 28, 0.92); backdrop-filter: none; -webkit-backdrop-filter: none; max-width: none; max-height: 810px; }
+.hud.xr .queue-ghost { position: absolute; }
+button[data-xr-hover] { background: rgba(255, 255, 255, 0.16); }
+.menu-btn[data-xr-hover]:not(:disabled) { background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.4); }
+.menu-option[data-xr-hover]:not(:disabled) { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.4); }
+.hud-resize[data-xr-hover] { opacity: 1; }
+.menu-track[data-xr-hover] .menu-track-knob { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5); }

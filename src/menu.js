@@ -25,6 +25,9 @@ import {
 
 export const MENU_TITLE = 'Fretboard XR';
 
+/** The options panel's gear, which opens and closes it. */
+export const MENU_TOGGLE = 'menu:toggle';
+
 /** Options → Background, in list order (passthrough last). */
 export const BACKGROUNDS = ['solid', 'skybox', 'passthrough'];
 const BACKGROUND_LABELS = { solid: 'Solid', skybox: 'Skybox', passthrough: 'Passthrough (XR Only)' };
@@ -69,7 +72,7 @@ const STEREO_VIEWS = ['sbs', 'interlaced'];
  * screen stereo usefully, so no SBS or Interlaced there. Phones always get
  * their XR views: without WebXR AR they fall back to the motion sensors.
  */
-function viewUnavailable(view, env) {
+export function viewUnavailable(view, env) {
   if (STEREO_VIEWS.includes(view)) return env.headset ? "Not in a headset's own browser" : null;
   if (view === 'xr') {
     if (env.phone) return 'On a phone, use XR: Phone AR or XR: Phone Viewer';
@@ -150,8 +153,10 @@ export const PLAY_ON_SELECT = [
 export const TEXT_SIZE = Object.freeze({ min: 0.75, max: 2, step: 0.25, default: 1 });
 /** Accessibility → Vibration: how strong the controllers' haptics are, 0 (off) to 2 (1: as made; above, every buzz stronger, up to the most a controller does). */
 export const VIBRATION = Object.freeze({ min: 0, max: 2, step: 0.1, default: 1 });
-/** The sliders' ids: App sets one with `onSlide(id, value)`. */
-export const SLIDERS = ['textSize', 'vibration'];
+/** Video → XR Resolution: the headset's framebuffer scale (1: the browser's own size), 50% to 100%, as in grid-game-threejs; fixed when a session starts. */
+export const XR_RESOLUTION = Object.freeze({ min: 0.5, max: 1, step: 0.05, default: 1 });
+/** The sliders' ids: App sets one with `onSlide(id, value)`, and hears it let go with `onSlide(id, value, true)`. */
+export const SLIDERS = ['textSize', 'vibration', 'xrResolution'];
 /** `v` on slider `range` ({ min, max, step }): within it, on a step (and no float dust: 0.3, not 0.30000000000000004). */
 export const snapToStep = (v, { min, max, step }) => Number((Math.round(Math.min(max, Math.max(min, v)) / step) * step).toFixed(4));
 
@@ -502,6 +507,14 @@ function videoItems(state, env) {
         VIEWS.map((v) => viewUnavailable(v, env)),
       ),
     },
+    {
+      id: 'xrResolution',
+      // (a session's is fixed when it starts: in one, a new value takes when the slider's let go, restarting it)
+      label: `XR Resolution: ${percent(state.xrResolution)}${state.xrResolutionActive != null && state.xrResolution !== state.xrResolutionActive ? ' (on release)' : ''}`,
+      icon: 'xrResolution',
+      title: "How sharply the headset draws (lower: smoother on a slow headset); in XR, letting go restarts it at the new size",
+      slider: { ...XR_RESOLUTION, value: state.xrResolution },
+    },
   ];
 }
 
@@ -668,6 +681,8 @@ const SAMPLE_STATE = {
   textSize: TEXT_SIZE.default,
   vibration: VIBRATION.default,
   controllerGuide: false,
+  xrResolution: XR_RESOLUTION.default,
+  xrResolutionActive: null,
 };
 export const MENU_ROWS = menuItems({ ...SAMPLE_STATE, sections: ALL_OPEN }, {}).length;
 
@@ -701,6 +716,7 @@ export function possibleLabels(env) {
     { textSize: TEXT_SIZE.max },
     { vibration: VIBRATION.min },
     { vibration: VIBRATION.max },
+    { xrResolution: XR_RESOLUTION.min, xrResolutionActive: XR_RESOLUTION.max },
     ...BPMS.map((bpm) => ({ bpm })),
     ...BEATS_PER_MEASURE.map((beatsPerMeasure) => ({ beatsPerMeasure })),
     // every chord Add Chord can show, and every Alteration

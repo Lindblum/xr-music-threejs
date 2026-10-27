@@ -18,8 +18,7 @@ import arrowUp from 'lineicons/assets/svgs/regular/arrow-upward.svg?raw';
 import arrowDown from 'lineicons/assets/svgs/regular/arrow-downward.svg?raw';
 import floppyDisk from 'lineicons/assets/svgs/regular/floppy-disk-1.svg?raw';
 import folder from 'lineicons/assets/svgs/regular/folder-1.svg?raw';
-import wheelchair from 'lineicons/assets/svgs/regular/wheelchair-1.svg?raw';
-import textFormat from 'lineicons/assets/svgs/regular/text-format.svg?raw';
+import gamepad from 'lineicons/assets/svgs/regular/game-pad-modern-1.svg?raw';
 
 // Lineicons ship with a fixed fill; recolour to follow the surrounding text
 // and size to the font.
@@ -171,18 +170,33 @@ ${vibrationBody}
 <path d="M3.5 3.5l17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
 </svg>`;
 
-// Controller Guide: a controller's ring and handle, a leader line out to a label; off, the label gone
-const guideController = `<circle cx="7.5" cy="9" r="4.25" stroke="currentColor" stroke-width="1.5"/>
-<path d="M7.5 13.25v7" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"/>`;
-const controllerGuideOn = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-${guideController}
-<path d="M7.5 9 13 5.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-opacity="0.7"/>
-<rect x="13" y="3" width="9" height="5" rx="1.25" fill="currentColor"/>
+// Accessibility: a figure with open arms, in a circle (grid-game-threejs's, drawn on this grid)
+const accessibility = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<circle cx="12" cy="12" r="9.6" stroke="currentColor" stroke-width="1.5"/>
+<circle cx="12" cy="6.5" r="1.45" fill="currentColor"/>
+<path d="M6.25 9.6h11.5M12 9.6v4.3M9.1 18.7 12 13.9l2.9 4.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
-const controllerGuideOff = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-${guideController}
-<rect x="13.5" y="3.5" width="8" height="4" rx="1" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" stroke-opacity="0.6"/>
+
+// XR Resolution: a pixel grid, its cells finer toward one corner (grid-game-threejs's, drawn on this grid)
+const xrResolution = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<rect x="3.85" y="3.85" width="16.3" height="16.3" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M12 3.85v16.3M3.85 12h16.3" stroke="currentColor" stroke-width="1.5"/>
+<path d="M7.9 3.85V12M3.85 7.9H12" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.5"/>
 </svg>`;
+
+// Text Size: a big A beside a small one (as in 4d-viewer-threejs)
+const textSize = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.75 19.25 8 4.75l5.25 14.5M4.6 14.25h6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M14.25 19.25 17.75 10l3.5 9.25M15.5 16.25h4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+
+// Controller Guide: a gamepad, struck through when off (as in 4d-viewer-threejs)
+const controllerGuideOn = recolour(gamepad);
+const controllerGuideOff = recolour(gamepad).replace(
+  '</svg>',
+  `<path d="M3.5 3.5 20.5 20.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+);
 
 const ICONS = {
   instrument: recolour(music),
@@ -234,8 +248,9 @@ const ICONS = {
   save: recolour(floppyDisk),
   load: recolour(folder),
   // Accessibility
-  accessibility: recolour(wheelchair),
-  textSize: recolour(textFormat),
+  accessibility,
+  xrResolution,
+  textSize,
   vibrationOn,
   vibrationOff,
   controllerGuideOn,

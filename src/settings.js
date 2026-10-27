@@ -5,7 +5,7 @@
 
 import { EFFECTS, INSTRUMENTS } from './audio.js';
 import { ALTERATIONS, CHORD_MODIFIERS, CHORD_TYPES, SCALES, TUNINGS } from './music.js';
-import { BACKGROUNDS, BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE, TEXT_SIZE, VIBRATION, snapToStep } from './menu.js';
+import { BACKGROUNDS, BEATS_PER_MEASURE, BPMS, PLAY_ON_SELECT, QUANTIZE, TEXT_SIZE, VIBRATION, XR_RESOLUTION, snapToStep } from './menu.js';
 
 const COOKIE = 'xr-music-settings';
 const MAX_AGE = 60 * 60 * 24 * 365; // a year, renewed on every change
@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS = {
   textSize: TEXT_SIZE.default, // Accessibility: the panels' text and icons, a multiplier
   vibration: VIBRATION.default, // ...the controllers' haptics, 0 (off) to 2
   controllerGuide: false, // ...XR labels on the controllers' buttons
+  xrResolution: XR_RESOLUTION.default, // Video: the headset's framebuffer scale
 };
 
 // the effects in the order their sliders were once saved, as a plain list
@@ -86,6 +87,7 @@ export function loadSettings() {
     textSize: onScale(saved.textSize, TEXT_SIZE) ?? d.textSize,
     vibration: onScale(saved.vibration, VIBRATION) ?? d.vibration,
     controllerGuide: Boolean(saved.controllerGuide),
+    xrResolution: onScale(saved.xrResolution, XR_RESOLUTION) ?? d.xrResolution,
   };
 }
 
@@ -110,6 +112,7 @@ export function saveSettings(s) {
     textSize: s.textSize,
     vibration: s.vibration,
     controllerGuide: s.controllerGuide,
+    xrResolution: s.xrResolution,
   });
   writeCookie(COOKIE, value);
 }

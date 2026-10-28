@@ -236,19 +236,20 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
-/* the corner grip that resizes the panel: three diagonal lines in its inner bottom-right corner */
+/* the corner grip that resizes the panel: three diagonal ridges across its inner bottom-right corner (as grid-game-threejs's) */
 .hud-resize {
   position: absolute;
   z-index: 2;
   right: 3px;
   bottom: 3px;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   opacity: 0.45;
   cursor: nwse-resize;
   touch-action: none;
-  /* three diagonal lines in the corner */
-  background: linear-gradient(135deg, transparent 0 calc(33% - 1px), var(--muted) calc(33% - 1px) calc(33% + 1px), transparent calc(33% + 1px) calc(58% - 1px), var(--muted) calc(58% - 1px) calc(58% + 1px), transparent calc(58% + 1px) calc(83% - 1px), var(--muted) calc(83% - 1px) calc(83% + 1px), transparent calc(83% + 1px));
+  background: var(--muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M10 15L15 10M5.5 15L15 5.5M1 15L15 1'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M10 15L15 10M5.5 15L15 5.5M1 15L15 1'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
 }
 .hud-resize:hover { opacity: 1; }
 

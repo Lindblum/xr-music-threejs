@@ -96,9 +96,15 @@ const GROW_RATE = 12; // per second
 // pointing frame (target-ray space: -Z forward, +Y up), so it moves and turns
 // with the hand like an extension of it: the bottom middle of what it shows
 // just above the controller's front, leaning back so its face tips up toward
-// the eyes.
-const DOCK_ANCHOR = new THREE.Vector3(0, 0.05, 0.02);
-const DOCK_TILT = -0.5; // radians about the controller's X: the top leans forward
+// the eyes. On the left hand: 1 cm left, 6 cm up, 2 cm back, tilted 45° (the
+// top leaning forward) and rolled 5°; the right hand mirrors it (as tuned in
+// grid-game-threejs: Debug → Docking).
+const dockPose = (mirror) => ({
+  anchor: new THREE.Vector3(-0.01 * mirror, 0.06, 0.02),
+  turn: new THREE.Quaternion().setFromEuler(new THREE.Euler(THREE.MathUtils.degToRad(-45), 0, THREE.MathUtils.degToRad(5 * mirror), 'YXZ')),
+});
+const DOCK_POSE = { left: dockPose(1), right: dockPose(-1) };
+for (const pose of Object.values(DOCK_POSE)) pose.matrix = new THREE.Matrix4().compose(pose.anchor, pose.turn, new THREE.Vector3(1, 1, 1));
 const DOCK_SCALE = 0.5;
 const STACK_GAP = 0.008; // m between panels stacked on a controller
 const DOUBLE_TAP = 0.35; // seconds between a grip's short tap and its next press, for a double tap
@@ -112,7 +118,6 @@ const REEL_MIN = 0.05; // m from the hand: reeled in no nearer
 const THUMBSTICK_X = 2; // xr-standard gamepad axis: right is positive
 const ROLL_RATE = Math.PI; // rad per second a held thing rolls about the ray at full tilt
 
-const _tilt = new THREE.Matrix4().makeRotationX(DOCK_TILT);
 const _dockPose = new THREE.Matrix4();
 const _tip = new THREE.Vector3();
 const _local = new THREE.Vector3();
@@ -193,17 +198,16 @@ function dockedHeight(panel) {
 
 /**
  * The panel's pose docked on a controller, in the controller's target-ray
- * space: its bottom edge at DOCK_ANCHOR with its corner button (the gear, the
+ * space (`hand`'s): its bottom edge on its DOCK_POSE anchor with its corner button (the gear, the
  * View panel's) over the controller, so docked panels line up on their left
  * edges and their buttons stand in one column; `lift` metres up its face
- * (above the panels stacked under it), tilted by DOCK_TILT, at DOCK_SCALE.
+ * (above the panels stacked under it), turned by its DOCK_POSE, at DOCK_SCALE.
  */
-function controllerDockOffset(panel, lift) {
+function controllerDockOffset(panel, lift, hand) {
   const mesh = panel.children.find((o) => o.isMesh);
   const { height } = mesh.geometry.parameters;
   return _dockPose
-    .makeTranslation(DOCK_ANCHOR.x, DOCK_ANCHOR.y, DOCK_ANCHOR.z)
-    .multiply(_tilt)
+    .copy(DOCK_POSE[hand].matrix)
     .multiply(_step.makeTranslation(0, lift, 0))
     .multiply(_step.makeScale(DOCK_SCALE, DOCK_SCALE, DOCK_SCALE))
     .multiply(_step.makeTranslation(-(panel.userData.toggleX ?? mesh.position.x), -(mesh.position.y - height / 2), 0));
@@ -822,7 +826,7 @@ export function useControllerGrips({
       } else if (dock.to === 'left' || dock.to === 'right') {
         const c = controllers[dock.to];
         panel.visible = Boolean(c);
-        if (c) carry(panel, c.rayMatrix, controllerDockOffset(panel, lift[dock.to]));
+        if (c) carry(panel, c.rayMatrix, controllerDockOffset(panel, lift[dock.to], dock.to));
         lift[dock.to] += dockedHeight(panel) + STACK_GAP;
         // flying there after a triple tap: between where it set off and its dock, eased
         const t = dock.fly && c ? (now - dock.fly.t0) / FLY : 1;

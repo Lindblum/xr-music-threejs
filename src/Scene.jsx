@@ -103,6 +103,32 @@ function StereoMenu({ menu }) {
 /** Where the first pick is docked: nowhere yet, until controllers show up (see Grab.jsx). */
 const firstPickDock = () => ({ to: null, placed: false, scale: 1 });
 
+/** `object`'s pose, as props that put it back so. */
+const poseOf = (object) => ({ position: object.position.toArray(), quaternion: object.quaternion.toArray(), scale: object.scale.toArray() });
+
+/**
+ * For an object drawn only in some views (XR, or not): `[setRef, props]`, a
+ * ref that fills `ref` and remembers the object's pose when it goes, and the
+ * props that put it back there when it's drawn again (`start` the first time),
+ * so switching views moves nothing.
+ */
+function useKeptPose(ref, start) {
+  const kept = useRef(null);
+  const setRef = useCallback(
+    (object) => {
+      if (!object && ref.current) kept.current = poseOf(ref.current);
+      ref.current = object;
+    },
+    [ref],
+  );
+  return [setRef, kept.current ?? start];
+}
+
+/** A dock on a hand (or the mouth), let go as a session ends: taken up again where it was when the next one finds controllers (see Grab.jsx). */
+const suspendDock = (dock) => {
+  if (dock.to === 'left' || dock.to === 'right' || dock.to === 'mouth') Object.assign(dock, { to: null, placed: false, rejoin: dock.to });
+};
+
 const SKY_URL = `${import.meta.env.BASE_URL}img/skybox.jpg`;
 
 /** Renders `fallback` if a child throws, e.g. a texture that failed to download. */
@@ -347,6 +373,10 @@ export default function Scene({
   const menuDock = useRef({ to: null, placed: false }); // where the panel is docked: see Grab.jsx
   const viewPanel = useRef(null);
   const viewDock = useRef({ to: null, placed: false }); // ...and the View panel
+  // the panels and the ToolFrame aren't drawn in every view: each comes back where it was
+  const [setMenuPanel, menuPose] = useKeptPose(menuPanel, { position: MENU_POSITION, rotation: MENU_ROTATION });
+  const [setViewPanel, viewPose] = useKeptPose(viewPanel, { position: VIEW_POSITION, rotation: MENU_ROTATION });
+  const [setToolFrame, toolFramePose] = useKeptPose(toolFrame, { position: TOOL_FRAME_POSITION, scale: START_SCALE });
   // stacked on a controller in this order, top to bottom
   const panels = useMemo(
     () => [
@@ -366,6 +396,19 @@ export default function Scene({
   const nextPickId = useRef(1);
   const [pickList, setPickList] = useState(() => [{ id: 0, instrument: state.instrument }]);
   const listPicks = useCallback(() => setPickList([...picks.current].map(([id, p]) => ({ id, instrument: p.instrument }))), []);
+  // each pick's ref (one per pick, so a re-render doesn't put back a pose it has since left): it
+  // remembers where the pick was as it goes (outside XR), to come back there
+  const pickRefs = useRef(new Map());
+  const pickRefOf = (id) => {
+    if (!pickRefs.current.has(id))
+      pickRefs.current.set(id, (object) => {
+        const p = picks.current.get(id);
+        if (!p) return pickRefs.current.delete(id);
+        if (!object && p.object) p.pose = poseOf(p.object);
+        p.object = object;
+      });
+    return pickRefs.current.get(id);
+  };
   // a new pick from the toolbox plays what the controller taking it does
   const spawnPick = useCallback(
     (hand) => {
@@ -416,33 +459,24 @@ export default function Scene({
     if (immersive) press('mouse', null);
   }, [immersive, press]);
 
-  // leaving XR puts the Fretboard and the side frames back where, and as big as, they started
-  useEffect(() => {
-    if (inSession) return;
-    for (const [object, position, scale] of [
-      [board.current, BOARD_POSITION, START_SCALE],
-      [chordFrame.current, CHORD_FRAME_POSITION, START_SCALE],
-      [toolFrame.current, TOOL_FRAME_POSITION, START_SCALE],
-      [filterFrame.current, filterFramePosition(strings), START_SCALE],
-    ]) {
-      if (!object) continue;
-      object.position.fromArray(position);
-      object.quaternion.identity();
-      object.scale.setScalar(scale);
-    }
-  }, [inSession]);
-
-  // controllers dock the panel and the first pick until moved (see Grab.jsx); leaving XR, or losing the
-  // controllers (to hand tracking) with a pick docked, leaves one pick, where it started, and frees a
+  // switching views moves nothing: what's in the scene stays where it was put, and leaving XR, what a
+  // hand (or the mouth) had docked goes back to it in the next session (see suspendDock)
+  // controllers dock the panel and the first pick until moved (see Grab.jsx); losing the controllers
+  // (to hand tracking) with a pick docked leaves one pick, where it started, and frees a
   // controller-docked panel
   useEffect(() => {
+    if (!inSession) {
+      for (const p of picks.current.values()) suspendDock(p.dock);
+      for (const { dock } of panels) suspendDock(dock.current);
+      return;
+    }
     const docked = [...picks.current.values()].some((p) => p.dock.to);
-    if (!inSession || (!hasControllers && docked)) {
+    if (!hasControllers && docked) {
       const [first] = picks.current.keys();
       const object = picks.current.get(first)?.object ?? null;
       picks.current = new Map([[first, { object, dock: firstPickDock(), instrument: currentInstrument.current }]]);
       listPicks();
-      if (inSession && object) {
+      if (object) {
         object.position.fromArray(PICK_POSITION);
         object.rotation.fromArray(PICK_ROTATION);
         object.scale.setScalar(1);
@@ -450,8 +484,7 @@ export default function Scene({
       }
     }
     for (const { dock: { current: dock }, object, position } of panels) {
-      if (!inSession) Object.assign(dock, { to: null, placed: false });
-      if (inSession && !hasControllers && (dock.to === 'left' || dock.to === 'right')) {
+      if (!hasControllers && (dock.to === 'left' || dock.to === 'right')) {
         dock.to = null;
         const panel = object.current;
         if (!panel) continue;
@@ -536,7 +569,7 @@ export default function Scene({
         hoverEnabled={!immersive}
       />
       {/* picks dock on controllers (and the mouth) */}
-      {inSession && !phone && <ToolFrame groupRef={toolFrame} position={TOOL_FRAME_POSITION} scale={START_SCALE} handles={handles} />}
+      {inSession && !phone && <ToolFrame groupRef={setToolFrame} {...toolFramePose} handles={handles} />}
       {inSession &&
         !phone &&
         pickList.map(({ id, instrument }) => (
@@ -544,13 +577,9 @@ export default function Scene({
             key={id}
             id={id}
             instrument={instrument}
-            pickRef={(object) => {
-              const p = picks.current.get(id);
-              if (p) p.object = object;
-            }}
+            pickRef={pickRefOf(id)}
             handles={handles}
-            position={PICK_POSITION}
-            rotation={PICK_ROTATION}
+            {...(picks.current.get(id)?.pose ?? { position: PICK_POSITION, rotation: PICK_ROTATION })}
           />
         ))}
       {inSession && (
@@ -579,19 +608,17 @@ export default function Scene({
         {immersive && !screenMenu && (
           <XRMenuPanel
             menu={menu}
-            groupRef={menuPanel}
+            groupRef={setMenuPanel}
             stickBusy={(hand) => handles.current.stickBusy?.[hand]}
-            position={MENU_POSITION}
-            rotation={MENU_ROTATION}
+            {...menuPose}
             scale={panelScale}
           />
         )}
         {immersive && !screenMenu && (
           <XRViewPanel
-            groupRef={viewPanel}
+            groupRef={setViewPanel}
             onSelect={onExitXR}
-            position={VIEW_POSITION}
-            rotation={MENU_ROTATION}
+            {...viewPose}
             scale={panelScale}
           />
         )}

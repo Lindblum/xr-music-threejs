@@ -372,9 +372,11 @@ export function useControllerGrips({
     const stickBusy = {}; // hand -> its grip holds something its stick pushes and pulls
     const gripping = {}; // hand -> what its grip holds: 'menu' (a panel), 'pick', 'knob', 'note' or a frame
 
-    // the panels start on the left controller and the first pick on the right (or whichever there is), until moved
-    for (const { dock } of panelList) if (!dock.to && !dock.placed && (controllers.left || controllers.right)) dock.to = controllers.left ? 'left' : 'right';
-    for (const p of pickList) if (!p.dock.to && !p.dock.placed && (controllers.left || controllers.right)) p.dock.to = controllers.right ? 'right' : 'left';
+    // the panels start on the left controller and the first pick on the right (or whichever there is), until
+    // moved; what a hand (or the mouth) had docked as the last session ended (`rejoin`) goes back to it
+    const rejoin = (dock, first) => (dock.rejoin === 'mouth' || controllers[dock.rejoin] ? dock.rejoin : first);
+    for (const { dock } of panelList) if (!dock.to && !dock.placed && (controllers.left || controllers.right)) dock.to = rejoin(dock, controllers.left ? 'left' : 'right');
+    for (const p of pickList) if (!p.dock.to && !p.dock.placed && (controllers.left || controllers.right)) p.dock.to = rejoin(p.dock, controllers.right ? 'right' : 'left');
 
     /** Whatever grip has hold of `target` (and pick or panel `id`) lets go of it, taking nothing more until it's let go. */
     const letGo = (target, id) => {

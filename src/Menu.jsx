@@ -50,7 +50,6 @@ function trailingIcon(item) {
 }
 
 const DRAG_START = 6; // px the pointer moves before a press on a queued chord becomes a drag
-const INDENT = 24; // px an open section's buttons are set in, as far as a dropdown's choices
 
 /** The playing chord's background: its dark colour split into the measure's beats, the current one bright. */
 function beatStyle({ color, dim, beats, beat }) {
@@ -335,6 +334,8 @@ function MenuOptions({ dropdown, onSelect, optionDrag }) {
 
 /** One row of buttons: a single button, or several in equal columns (see menuBlocks). */
 function MenuRow({ row, onSelect, onSlide, onName, queue, optionDrag }) {
+  // Options → Controls: a drawing of what the input last touched does (controlsGuide.js)
+  if (row[0].guide) return <div className="controls-guide" dangerouslySetInnerHTML={{ __html: row[0].guide.svg }} />;
   const open = row.find((item) => item.dropdown?.open);
   const buttons = row.map((item) => <MenuButton key={item.id} item={item} onSelect={onSelect} onSlide={onSlide} onName={onName} queue={queue} />);
   return (
@@ -388,7 +389,7 @@ function MenuButtons({ items, labels, onSelect, onSlide, onQueueEdit, onName, on
         );
         // an open section's buttons, set in beneath its header like a dropdown's choices, a step for each section
         return block.indent ? (
-          <div key={`indent-${b}`} className="menu-indent" style={{ marginLeft: INDENT * block.indent }}>
+          <div key={`indent-${b}`} className="menu-indent" style={{ marginLeft: `calc(var(--ui-indent) * ${block.indent})` }}>
             {content}
           </div>
         ) : (
@@ -434,7 +435,7 @@ const MenuSizer = memo(function MenuSizer({ labels }) {
         const key = JSON.stringify(entry);
         const framed = entry.group ? <div className="menu-group">{row}</div> : row;
         return entry.indent ? (
-          <div key={key} className="menu-indent" style={{ marginLeft: INDENT * entry.indent }}>
+          <div key={key} className="menu-indent" style={{ marginLeft: `calc(var(--ui-indent) * ${entry.indent})` }}>
             {framed}
           </div>
         ) : (

@@ -1,6 +1,6 @@
 // Options menu model shared by the windowed panel (DOM) and the XR panel
 // (drawn on a canvas): one page of buttons, each "Name: Value", in sections
-// (Analyze, Music, Video, Accessibility) that open and close in place, like dropdowns. A button
+// (Analyze, Music, Display, Accessibility) that open and close in place, like dropdowns. A button
 // cycles its setting or opens a dropdown list of choices beneath it (a
 // chevron on its right), or is a slider. Buttons can share a row, and a run of them can sit
 // in a framed group (see menuBlocks).
@@ -22,6 +22,8 @@ import {
   sameChord,
   stockChords,
 } from './music.js';
+import { INPUT_NAMES, controlsGuide } from './controlsGuide.js';
+import { CONTROLS } from './controls.js';
 
 export const MENU_TITLE = 'Fretboard XR';
 
@@ -149,14 +151,16 @@ export const PLAY_ON_SELECT = [
   { id: 'chord', name: 'Chord' },
 ];
 
+/** Accessibility → Volume: the interface's sounds (the menu tick, not the music), 0 (off) to 100%. */
+export const VOLUME = Object.freeze({ min: 0, max: 1, step: 0.1, default: 1 });
 /** Accessibility → Text Size: a multiplier on the panels' text and icons (the page's, and XR's), 75% to 200%, as in grid-game-threejs. */
 export const TEXT_SIZE = Object.freeze({ min: 0.75, max: 2, step: 0.25, default: 1 });
 /** Accessibility → Vibration: how strong the controllers' haptics are, 0 (off) to 2 (1: as made; above, every buzz stronger, up to the most a controller does). */
 export const VIBRATION = Object.freeze({ min: 0, max: 2, step: 0.1, default: 1 });
-/** Video → XR Resolution: the headset's framebuffer scale (1: the browser's own size), 50% to 100%, as in grid-game-threejs; fixed when a session starts. */
+/** Display → XR Resolution: the headset's framebuffer scale (1: the browser's own size), 50% to 100%, as in grid-game-threejs; fixed when a session starts. */
 export const XR_RESOLUTION = Object.freeze({ min: 0.5, max: 1, step: 0.05, default: 1 });
 /** The sliders' ids: App sets one with `onSlide(id, value)`, and hears it let go with `onSlide(id, value, true)`. */
-export const SLIDERS = ['textSize', 'vibration', 'xrResolution'];
+export const SLIDERS = ['volume', 'textSize', 'vibration', 'xrResolution'];
 /** `v` on slider `range` ({ min, max, step }): within it, on a step (and no float dust: 0.3, not 0.30000000000000004). */
 export const snapToStep = (v, { min, max, step }) => Number((Math.round(Math.min(max, Math.max(min, v)) / step) * step).toFixed(4));
 
@@ -473,25 +477,10 @@ export function rowSpans(row) {
   return spans;
 }
 
-/** The Video section: every background and view, those this device can't have shown disabled, with why. */
-function videoItems(state, env) {
+/** The Display section: every background and view, those this device can't have shown disabled, with why. */
+function displayItems(state, env) {
   const columns = 2;
   return [
-    {
-      id: 'background',
-      label: `Background: ${BACKGROUND_LABELS[state.background]}`,
-      icon: state.background,
-      dropdown: dropdown(
-        state,
-        'background',
-        BACKGROUNDS.map((b) => BACKGROUND_LABELS[b]),
-        BACKGROUNDS.indexOf(state.background),
-        BACKGROUNDS,
-        columns,
-        undefined,
-        BACKGROUNDS.map((b) => backgroundUnavailable(b, env)),
-      ),
-    },
     {
       id: 'view',
       label: `View Mode: ${VIEW_LABELS[state.view]}`,
@@ -505,6 +494,21 @@ function videoItems(state, env) {
         columns,
         undefined,
         VIEWS.map((v) => viewUnavailable(v, env)),
+      ),
+    },
+    {
+      id: 'background',
+      label: `Background: ${BACKGROUND_LABELS[state.background]}`,
+      icon: state.background,
+      dropdown: dropdown(
+        state,
+        'background',
+        BACKGROUNDS.map((b) => BACKGROUND_LABELS[b]),
+        BACKGROUNDS.indexOf(state.background),
+        BACKGROUNDS,
+        columns,
+        undefined,
+        BACKGROUNDS.map((b) => backgroundUnavailable(b, env)),
       ),
     },
     {
@@ -522,12 +526,19 @@ function videoItems(state, env) {
 const percent = (v) => `${Math.round(v * 100)}%`;
 
 /**
- * The Accessibility section, as grid-game-threejs's: Text Size and Vibration
- * (sliders), and Controller Guide (XR: labels beside each controller's
+ * The Accessibility section, as grid-game-threejs's: Volume, Text Size and Vibration
+ * (sliders), and XR Control Guides (XR: labels beside each controller's
  * buttons saying what they do now).
  */
 function accessibilityItems(state) {
   return [
+    {
+      id: 'volume',
+      label: `Volume: ${state.volume > 0 ? percent(state.volume) : 'Off'}`,
+      icon: state.volume > 0 ? 'soundOn' : 'soundOff',
+      title: "The interface's sounds (the menu tick); the music's volume is the FilterFrame's",
+      slider: { ...VOLUME, value: state.volume },
+    },
     {
       id: 'textSize',
       label: `Text Size: ${percent(state.textSize)}`,
@@ -544,7 +555,7 @@ function accessibilityItems(state) {
     },
     {
       id: 'controllerGuide',
-      label: `Controller Guide: ${state.controllerGuide ? 'On' : 'Off'}`,
+      label: `XR Control Guides: ${state.controllerGuide ? 'On' : 'Off'}`,
       icon: state.controllerGuide ? 'controllerGuideOn' : 'controllerGuideOff',
       title: "In XR, labels beside each controller's buttons saying what they do",
     },
@@ -623,7 +634,9 @@ function analyzeItems(state) {
 const SECTIONS = [
   { id: 'analyze', label: 'Analyze', icon: 'analyze', items: analyzeItems },
   { id: 'music', label: 'Music', icon: 'instrument', items: (state) => [...instrumentItems(state), ...progressionItems(state)] },
-  { id: 'video', label: 'Video', icon: 'video', items: videoItems },
+  // Controls: no settings, but a drawing of what the input last touched does (controlsGuide.js), as an item with `guide`
+  { id: 'controls', label: 'Controls', icon: 'controls', items: (state, env) => [{ id: 'guide:controls', guide: controlsGuide(env.input ?? 'mk', CONTROLS) }] },
+  { id: 'display', label: 'Display', icon: 'display', items: displayItems },
   { id: 'accessibility', label: 'Accessibility', icon: 'accessibility', items: accessibilityItems },
 ];
 
@@ -640,6 +653,7 @@ const SECTIONS = [
  * `slider`: { min, max, step, value }, drawn with a track and knob on its right (see SLIDERS).
  * `row` / `span` / `cols` / `group`: see menuBlocks and rowSpans. `indent`: how many open sections it's in, each
  * setting it in a step from its header.
+ * `guide` (Controls'): { svg, width, height }, a drawing, not a button.
  * `sizeLabel`: the label the panels size for, if not `label`. `small`: a smaller font, for
  * buttons sharing a row; `compact`: just the label, centred; `current`: lit,
  * as the progression's playing chord: in `dim`, split into `beats`, with
@@ -651,7 +665,7 @@ export function menuItems(state, env) {
     const open = Boolean(state.sections?.[id]);
     // its buttons indented beneath it, as a dropdown's choices are (a section within it, a step further)
     return [
-      { id: `${SECTION_PREFIX}${id}`, label, icon, section: { open } },
+      { id: `${SECTION_PREFIX}${id}`, label: id === 'controls' ? `Controls: ${INPUT_NAMES[env.input ?? 'mk']}` : label, icon, section: { open } },
       ...(open ? items(state, env).map((item) => ({ ...item, indent: (item.indent ?? 0) + 1 })) : []),
     ];
   });
@@ -678,6 +692,7 @@ const SAMPLE_STATE = {
   progression: [],
   draft: { degree: 0, alteration: 0, type: 'maj', modifier: 'none' },
   player: STOPPED,
+  volume: VOLUME.default,
   textSize: TEXT_SIZE.default,
   vibration: VIBRATION.default,
   controllerGuide: false,
@@ -712,6 +727,8 @@ export function possibleLabels(env) {
     ...PLAY_ON_SELECT.map((p) => ({ playOnSelect: p.id })),
     { velocity: true },
     { controllerGuide: true },
+    { volume: VOLUME.min },
+    { volume: VOLUME.max },
     { textSize: TEXT_SIZE.min },
     { textSize: TEXT_SIZE.max },
     { vibration: VIBRATION.min },
@@ -752,6 +769,7 @@ export function possibleLabels(env) {
   for (const v of variants)
     for (const block of menuBlocks(menuItems({ ...base, ...v, sections: ALL_OPEN }, env)))
         for (const row of block.rows) {
+          if (row[0].guide) continue; // (Controls' drawing: as wide as the panel is)
           if (row[0].row == null && !block.indent) {
             labels.add(row[0].sizeLabel ?? row[0].label);
             continue;
@@ -769,5 +787,6 @@ export function possibleLabels(env) {
             indent: block.indent,
           });
         }
+  for (const name of Object.values(INPUT_NAMES)) labels.add(`Controls: ${name}`);
   return [...labels, ...rows.values()];
 }

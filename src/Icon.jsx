@@ -5,6 +5,8 @@ import arrowRight from 'lineicons/assets/svgs/regular/arrow-right.svg?raw';
 import chevronDown from 'lineicons/assets/svgs/regular/chevron-down.svg?raw';
 import chevronUp from 'lineicons/assets/svgs/regular/chevron-up.svg?raw';
 import check from 'lineicons/assets/svgs/regular/check.svg?raw';
+import volume from 'lineicons/assets/svgs/regular/volume-high.svg?raw';
+import volumeMute from 'lineicons/assets/svgs/regular/volume-mute.svg?raw';
 import gear from 'lineicons/assets/svgs/regular/gear-1.svg?raw';
 import picture from 'lineicons/assets/svgs/regular/gallery.svg?raw';
 import globe from 'lineicons/assets/svgs/regular/globe-1.svg?raw';
@@ -70,12 +72,8 @@ const phoneViewer = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fil
 <circle cx="16.6" cy="12" r="2.1" stroke="currentColor" stroke-width="1.5"/>
 </svg>`;
 
-// Video: the screen playing
-const video = monitor.replace(
-  '</svg>',
-  `<path d="M10.25 7.6v5.3l4.4-2.65-4.4-2.65Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
-</svg>`,
-);
+// Display: the screen, as Normal view's
+const display = monitor;
 
 // Solid background: a filled rectangle
 const solid = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -170,6 +168,14 @@ ${vibrationBody}
 <path d="M3.5 3.5l17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
 </svg>`;
 
+// Controls: a gamepad, as grid-game-threejs's (its outline, D-pad and two buttons)
+const controls = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M7.2 7.2h9.6l3.84 1.44 1.92 7.2-2.4 2.88-4.32-3.36H8.16l-4.32 3.36-2.4-2.88 1.92-7.2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M7.2 9.6v3.36M5.52 11.28h3.36" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="15.84" cy="10.32" r="1" fill="currentColor"/>
+<circle cx="17.76" cy="12.48" r="1" fill="currentColor"/>
+</svg>`;
+
 // Accessibility: a figure with open arms, in a circle (grid-game-threejs's, drawn on this grid)
 const accessibility = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
 <circle cx="12" cy="12" r="9.6" stroke="currentColor" stroke-width="1.5"/>
@@ -190,7 +196,7 @@ const textSize = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="
 <path d="M14.25 19.25 17.75 10l3.5 9.25M15.5 16.25h4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
-// Controller Guide: a gamepad, struck through when off (as in 4d-viewer-threejs)
+// XR Control Guides: a gamepad, struck through when off (as in 4d-viewer-threejs)
 const controllerGuideOn = recolour(gamepad);
 const controllerGuideOff = recolour(gamepad).replace(
   '</svg>',
@@ -212,7 +218,7 @@ const ICONS = {
   tuning: recolour(sliders),
   echo,
   echoOff,
-  video,
+  display,
   // Back, and its mirror marking a button that opens a submenu
   back: recolour(arrowLeft),
   forward: recolour(arrowRight),
@@ -249,7 +255,10 @@ const ICONS = {
   load: recolour(folder),
   // Accessibility
   accessibility,
+  controls,
   xrResolution,
+  soundOn: recolour(volume),
+  soundOff: recolour(volumeMute),
   textSize,
   vibrationOn,
   vibrationOff,

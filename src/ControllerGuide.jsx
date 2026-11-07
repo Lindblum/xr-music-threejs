@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useXRStore } from '@react-three/xr';
 import * as THREE from 'three';
 
-// Accessibility → Controller Guide (XR), as grid-game-threejs's: a label beside each of a
+// Accessibility → XR Control Guides, as grid-game-threejs's: a label beside each of a
 // controller's buttons, stick, trigger, grip and menu button saying what it does right now.
 // Each label points, with a thin leader line, at the middle of that part on the controller's
 // own model (the input profile's nodes for it). A / B / X / Y and the grip stand in a column

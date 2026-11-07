@@ -5,6 +5,7 @@ import { XR, createXRStore, useXRSessionModeSupported } from '@react-three/xr';
 import Scene from './Scene.jsx';
 import { sideBySideEvents } from './SideBySide.jsx';
 import { Hud, ViewPanel } from './Menu.jsx';
+import { getLastInput, subscribeLastInput, watchXRInput } from './controlsGuide.js';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { buildCells } from './Fretboard.jsx';
@@ -31,11 +32,13 @@ import {
   possibleLabels,
   TEXT_SIZE,
   VIBRATION,
+  VOLUME,
   XR_RESOLUTION,
   snapToStep,
   viewUnavailable,
 } from './menu.js';
 import { setVibration } from './Touch.jsx';
+import { initSound, playTick, setVolume, wakeSoundInXR } from './sound.js';
 
 // View Mode: Normal, 3D: SBS (half side-by-side, for 3D TVs and projectors)
 // and 3D: Interlaced (alternate rows, for passive 3D monitors) are windowed.
@@ -109,10 +112,11 @@ function useMusicState() {
   const [velocity, setVelocity] = useState(saved.velocity); // notes as loud as they're struck hard
   const [playOnSelect, setPlayOnSelect] = useState(saved.playOnSelect); // played on selecting a chord: 'off' | 'root' | 'chord'
   const [background, setBackground] = useState(saved.background); // 'solid' | 'skybox' | 'passthrough'
-  const [textSize, setTextSize] = useState(saved.textSize); // Accessibility: the panels' text and icons, a multiplier
+  const [volume, setVolumeLevel] = useState(saved.volume); // Accessibility: the interface's sounds (the menu tick)
+  const [textSize, setTextSize] = useState(saved.textSize); // ...the panels' text and icons, a multiplier
   const [vibration, setVibrationAmount] = useState(saved.vibration); // ...the controllers' haptics (see Touch.jsx)
   const [controllerGuide, setControllerGuide] = useState(saved.controllerGuide); // ...XR labels on the controllers' buttons
-  const [xrResolution, setXrResolution] = useState(saved.xrResolution); // Video: the headset's framebuffer scale
+  const [xrResolution, setXrResolution] = useState(saved.xrResolution); // Display: the headset's framebuffer scale
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [sections, setSections] = useState({ music: true }); // the menu's sections open: id -> true (see menu.js)
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
@@ -133,9 +137,9 @@ function useMusicState() {
   // the FilterFrame's sliders, effect id -> 0..1: they move every frame while dragged, so they're no state (see SideFrames.jsx)
   const effectAmounts = useRef(saved.effectAmounts);
   const latest = useRef(null); // the settings as they are now, for saving the sliders with
-  latest.current = { instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft, savedProgressions, textSize, vibration, controllerGuide, xrResolution };
+  latest.current = { instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft, savedProgressions, volume, textSize, vibration, controllerGuide, xrResolution };
   const save = useCallback(() => saveSettings({ ...latest.current, effectAmounts: effectAmounts.current }), []);
-  useEffect(save, [save, instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft, textSize, vibration, controllerGuide, xrResolution]);
+  useEffect(save, [save, instrument, scale, key, tuning, quantize, effects, background, velocity, playOnSelect, bpm, beatsPerMeasure, progression, draft, volume, textSize, vibration, controllerGuide, xrResolution]);
   // a slider moved: heard at once, and saved once it's been still a moment
   const saveTimer = useRef(null);
   const slideEffect = useCallback(
@@ -164,9 +168,10 @@ function useMusicState() {
       clearEffects: () => setEffects(DEFAULT_SETTINGS.effects),
       toggleVelocity: () => setVelocity((v) => !v),
       toggleControllerGuide: () => setControllerGuide((v) => !v),
-      /** Accessibility's sliders: Text Size and Vibration (see menu.js), each kept on its steps. */
+      /** Accessibility's sliders: Volume, Text Size and Vibration (see menu.js), each kept on its steps. */
       slide: (id, value) => {
-        if (id === 'textSize') setTextSize(snapToStep(value, TEXT_SIZE));
+        if (id === 'volume') setVolumeLevel(snapToStep(value, VOLUME));
+        else if (id === 'textSize') setTextSize(snapToStep(value, TEXT_SIZE));
         else if (id === 'vibration') setVibrationAmount(snapToStep(value, VIBRATION));
         else if (id === 'xrResolution') setXrResolution(snapToStep(value, XR_RESOLUTION));
       },
@@ -292,6 +297,7 @@ function useMusicState() {
     savedProgressions,
     naming,
     saveError,
+    volume,
     textSize,
     vibration,
     controllerGuide,
@@ -479,7 +485,20 @@ export default function App() {
 
   const support = useXRSupport();
   const sessionActive = useSyncExternalStore(store.subscribe, getSessionActive);
-  // Video → XR Resolution: the store reads it as a session starts; the session's own is fixed from then
+  const input = useSyncExternalStore(subscribeLastInput, getLastInput); // (the input last touched: Options → Controls shows it)
+  // Accessibility → Volume: the interface's sounds (the menu tick); the page's first click or key lets them play, in XR (no clicks) the controllers' presses
+  useEffect(() => setVolume(state.volume), [state.volume]);
+  useEffect(initSound, []);
+  useEffect(() => {
+    const session = sessionActive && store.getState().session;
+    return session ? wakeSoundInXR(session) : undefined;
+  }, [sessionActive]);
+  // ...and count as the input last touched (see controlsGuide.js)
+  useEffect(() => {
+    const session = sessionActive && store.getState().session;
+    return session ? watchXRInput(session) : undefined;
+  }, [sessionActive]);
+  // Display → XR Resolution: the store reads it as a session starts; the session's own is fixed from then
   const [xrResolutionActive, setXrResolutionActive] = useState(null);
   useEffect(() => {
     if (!sessionActive) xrOptions.frameBufferScaling = state.xrResolution;
@@ -626,6 +645,7 @@ export default function App() {
    * an instrument chosen so is that controller's alone (see Scene.jsx).
    */
   const onSelect = (id, source = {}) => {
+    playTick(); // (the menu tick, as in grid-game-threejs: every press; the sliders come by onSlide, so their drags don't)
     if (id === MENU_TOGGLE) actions.toggleMenu();
     else if (id.startsWith(SECTION_PREFIX)) actions.toggleSection(id.slice(SECTION_PREFIX.length));
     else if (id.startsWith(PICK_PREFIX)) {
@@ -705,7 +725,7 @@ export default function App() {
       : phone
         ? `XR: phone AR, tracked, ${phoneStereo ? 'stereo' : 'mono'}`
         : `XR: headset ${sessionMode === 'immersive-ar' ? 'AR' : 'VR'}`;
-  const env = { xrSupported, passthroughAvailable, checking: !support.checked, phone, headset };
+  const env = { xrSupported, passthroughAvailable, checking: !support.checked, phone, headset, input };
   const labels = useMemo(() => possibleLabels({ xrSupported, passthroughAvailable, phone, headset }), [xrSupported, passthroughAvailable, phone, headset]);
   const menu = {
     title: MENU_TITLE,

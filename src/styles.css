@@ -5,6 +5,15 @@
   --text: #e8ecf6;
   --muted: #9aa3b8;
   --text-scale: 1; /* Accessibility → Text Size: the panel's text and icons (set by App) */
+  /* the shared panel tokens (see ../threejs-ui/README.md): one gap between every field, at every level */
+  --ui-gap: 6px; /* between fields, and between panels in the column */
+  --ui-pad-y: 4px; /* inside a field, top / bottom... */
+  --ui-pad-x: 8px; /* ...left / right, and between its icon and label */
+  --ui-panel-pad: 10px;
+  --ui-indent: 16px; /* an open section's buttons or a dropdown's choices */
+  --ui-field-h: calc(30px * var(--text-scale)); /* a field's least height (more only if a slider's track wraps beneath); a corner toggle is this square */
+  --ui-radius: 8px;
+  --ui-panel-radius: 12px;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -29,7 +38,7 @@ canvas { display: block; touch-action: none; }
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--ui-gap);
   max-height: calc(100dvh - 2 * max(12px, env(safe-area-inset-top)));
 }
 .hud {
@@ -38,23 +47,23 @@ canvas { display: block; touch-action: none; }
   min-height: 0;
   width: max-content; /* as wide as the widest possible button (see .menu-sizer) */
   max-width: calc(100vw - 24px);
-  padding: 14px 16px;
+  padding: var(--ui-panel-pad);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--ui-panel-radius);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   font-size: calc(14px * var(--text-scale));
   user-select: none;
 }
 
-.hud header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.hud header { display: flex; align-items: center; gap: var(--ui-pad-x); margin-bottom: var(--ui-gap); }
 .hud h1 { flex: 1; margin: 0; font-size: calc(16px * var(--text-scale)); font-weight: 650; letter-spacing: 0.02em; }
-.hud .collapse { display: grid; place-items: center; width: calc(30px * var(--text-scale)); height: calc(28px * var(--text-scale)); padding: 0; }
+.hud .collapse { display: grid; place-items: center; width: var(--ui-field-h); height: var(--ui-field-h); padding: 0; }
 /* closed: the panel around its gear alone, the gear where it sits in the open panel */
 .hud.collapsed header { margin-bottom: 0; }
 
-.stats { margin: 0 0 10px; color: var(--muted); font-size: calc(12.5px * var(--text-scale)); font-variant-numeric: tabular-nums; }
+.stats { margin: 0 0 var(--ui-gap); color: var(--muted); font-size: calc(12.5px * var(--text-scale)); font-variant-numeric: tabular-nums; }
 
 button {
   font: inherit;
@@ -68,10 +77,10 @@ button {
 button:hover { background: rgba(255, 255, 255, 0.16); }
 
 /* options: equal-width grey buttons, one per setting, "icon  Name: Value" */
-.menu-items { display: flex; flex-direction: column; gap: 10px; }
+.menu-items { display: flex; flex-direction: column; gap: var(--ui-gap); }
 .menu-sizer {
   height: 0;
-  margin-top: -10px; /* cancel the list's gap above it */
+  margin-top: calc(-1 * var(--ui-gap)); /* cancel the list's gap above it */
   overflow: hidden;
   visibility: hidden;
 }
@@ -79,11 +88,11 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: calc(var(--ui-pad-x) + 2px);
   width: 100%;
-  min-height: 34px;
-  padding: 4px 10px;
-  border-radius: 10px;
+  min-height: var(--ui-field-h);
+  padding: var(--ui-pad-y) var(--ui-pad-x);
+  border-radius: var(--ui-radius);
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.14);
   text-align: left;
@@ -110,19 +119,19 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-input { min-width: 0; font: inherit; font-size: calc(13px * var(--text-scale)); color: var(--text); background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.4); user-select: text; }
 .menu-input:focus { outline: 2px solid rgba(150, 175, 255, 0.9); outline-offset: 0; }
 /* buttons sharing a row, in equal columns */
-.menu-row { display: grid; gap: 8px; }
+.menu-row { display: grid; gap: var(--ui-gap); }
 /* an open section's buttons, set in beneath its header (a step per section, set on it) as far as a dropdown's choices */
-.menu-indent { display: flex; flex-direction: column; gap: 10px; }
+.menu-indent { display: flex; flex-direction: column; gap: var(--ui-gap); }
 /* in the sizer, columns in the row's shares (set on the row), as a real row would need */
 .menu-sizer .sizer-row { grid-auto-flow: column; }
 /* a framed group of buttons, such as the progression's queue */
 .menu-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
+  gap: var(--ui-gap);
+  padding: var(--ui-gap);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
+  border-radius: var(--ui-panel-radius);
   background: rgba(0, 0, 0, 0.22);
 }
 /* a compact button: just its label, centred */
@@ -156,7 +165,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .icon { display: inline-flex; flex: none; align-items: center; line-height: 0; }
 .icon svg { display: block; }
 
-.note { margin: 8px 0 0; color: var(--muted); font-size: calc(12px * var(--text-scale)); line-height: 1.45; }
+.note { margin: var(--ui-gap) 0 0; color: var(--muted); font-size: calc(12px * var(--text-scale)); line-height: 1.45; }
 
 .note.error { color: #ff9b8a; }
 
@@ -193,17 +202,17 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-options {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin: -4px 0 0 24px;
+  gap: var(--ui-gap);
+  margin-left: var(--ui-indent);
 }
 .menu-option {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  min-height: 30px;
-  padding: 3px 10px;
-  border-radius: 8px;
+  min-height: calc(26px * var(--text-scale));
+  padding: 2px var(--ui-pad-x);
+  border-radius: var(--ui-radius);
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.1);
   text-align: left;
@@ -228,8 +237,8 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .hud-body {
   flex: 1 1 auto; /* fills a height dragged taller than the buttons */
   min-height: 0;
-  margin-right: -10px; /* the scrollbar sits in the panel's padding, not over the buttons */
-  padding-right: 10px;
+  margin-right: calc(-1 * var(--ui-panel-pad)); /* the scrollbar sits in the panel's padding, not over the buttons */
+  padding-right: var(--ui-panel-pad);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -262,4 +271,7 @@ button[data-xr-hover] { background: rgba(255, 255, 255, 0.16); }
 .menu-option[data-xr-hover]:not(:disabled) { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.4); }
 .hud-resize[data-xr-hover] { opacity: 1; }
 .menu-track[data-xr-hover] .menu-track-knob { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5); }
-.hud.xr.panel-error { display: block; width: 360px; padding: 14px 16px; color: #ffb4a8; }
+.hud.xr.panel-error { display: block; width: 360px; padding: var(--ui-panel-pad); color: #ffb4a8; }
+
+/* Options → Controls: the drawing of what the input last touched does (controlsGuide.js) */
+.controls-guide svg { display: block; width: 100%; max-width: 420px; height: auto; } /* (wider, its text would outgrow the menu's) */

@@ -17,6 +17,7 @@ import { CameraBackground, CardboardRig } from './Cardboard.jsx';
 import { GazeReticle } from './Gaze.jsx';
 import { PhoneStereoCameraFeed, PhoneStereoXR } from './PhoneStereo.jsx';
 import { SOLID_BACKGROUND } from './menu.js';
+import { xrTexts } from './controls.js';
 import { allNotesOff, noteOff, noteOn, setBend } from './audio.js';
 
 // The Fretboard's centre: a metre above the floor and half a metre in front
@@ -40,7 +41,7 @@ export const ORBIT_TARGET = [-0.5, 1, -0.5];
 const MENU_POSITION = [-0.78, 1.33, 0.22]; // its top-left corner
 const MENU_ROTATION = [0, 0.9, 0];
 const VIEW_POSITION = [-0.78, 0.66, 0.22]; // the View panel's, under it
-/** The Controller Guide's grip label while it holds something other than a panel, pick or frame. */
+/** The XR Control Guides' grip label while it holds something other than a panel, pick or frame. */
 const GRIP_HELD = { note: 'Let go to stop bending', knob: 'Let go of the knob' };
 // a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
 const PHONE_STEREO_MENU_SCALE = 1.5;
@@ -496,16 +497,15 @@ export default function Scene({
     }
   }, [inSession, hasControllers, panels]);
 
-  // the Controller Guide: what each controller's parts do now, by what its grip holds
+  // the XR Control Guides: what each controller's parts do now, by what its grip holds
   const guideTexts = useCallback(
     (hand) => {
       const held = handles.current.gripping?.[hand];
-      return {
-        'xr-standard-trigger': 'Select · slide\nHeld: every note sounds',
-        'xr-standard-squeeze': held ? (GRIP_HELD[held] ?? 'Let go: drop, or dock') : 'Grab · bend a note\n×2: Dock / undock panels\n×3: Summon panels',
-        'xr-standard-thumbstick': handles.current.stickBusy?.[hand] ? '↕ Push / pull\n↔ Roll' : hand === 'left' ? 'Move' : 'Turn\nOn the menu: ↕ Scroll',
-        menu: hand === 'left' ? 'Leave XR' : '',
-      };
+      // (what they do at rest, controls.js; held, the grip and the stick work what's held)
+      const texts = xrTexts(hand);
+      if (held) texts['xr-standard-squeeze'] = GRIP_HELD[held] ?? 'Let go: drop, or dock';
+      if (handles.current.stickBusy?.[hand]) texts['xr-standard-thumbstick'] = '↕ Push / pull\n↔ Roll';
+      return texts;
     },
     [handles],
   );

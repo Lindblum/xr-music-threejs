@@ -42,18 +42,16 @@ const backgroundUnavailable = (b, env) =>
   b === 'passthrough' && !env.passthroughAvailable ? 'Passthrough needs an AR-capable headset or a phone camera' : null;
 
 /**
- * View Mode, in list order. Normal, 3D: SBS (half side-by-side, for 3D
- * TVs and projectors) and 3D: Interlaced (alternate rows, for passive 3D
- * monitors) are windowed. The rest are XR: XR: Headset on headsets; on
+ * View Mode, in list order. Normal and 3D: SBS (half side-by-side, for 3D
+ * TVs and projectors) are windowed. The rest are XR: XR: Headset on headsets; on
  * phones, XR: Phone AR (one view) and XR: Phone Viewer (two lens-corrected
  * eyes for a phone viewer), as in the 4D viewer.
  */
-export const VIEWS = ['normal', 'sbs', 'interlaced', 'xr', 'phoneAR', 'phoneViewer'];
+export const VIEWS = ['normal', 'sbs', 'xr', 'phoneAR', 'phoneViewer'];
 export const XR_VIEWS = ['xr', 'phoneAR', 'phoneViewer'];
 const VIEW_LABELS = {
   normal: 'Normal',
   sbs: '3D: SBS',
-  interlaced: '3D: Interlaced',
   xr: 'XR: Headset',
   phoneAR: 'XR: Phone AR',
   phoneViewer: 'XR: Phone Viewer',
@@ -61,17 +59,17 @@ const VIEW_LABELS = {
 const VIEW_ICONS = {
   normal: 'monitor',
   sbs: 'monitorSbs',
-  interlaced: 'monitorInterlaced',
+ 
   xr: 'vr',
   phoneAR: 'phone',
   phoneViewer: 'phoneViewer',
 };
-const STEREO_VIEWS = ['sbs', 'interlaced'];
+const STEREO_VIEWS = ['sbs'];
 
 /**
  * Why this device can't show `view`, or null if it can. `env`: { phone,
  * headset, xrSupported, checking }. A headset browser's own window can't show
- * screen stereo usefully, so no SBS or Interlaced there. Phones always get
+ * screen stereo usefully, so no SBS there. Phones always get
  * their XR views: without WebXR AR they fall back to the motion sensors.
  */
 export function viewUnavailable(view, env) {

@@ -12,7 +12,6 @@ import { XRMenuPanel, XRViewPanel } from './XRMenuPanel.jsx';
 import { CSS_PX_M } from './DomPanel.jsx';
 import { ControllerGuide } from './ControllerGuide.jsx';
 import { EYE_SEPARATION, SideBySide } from './SideBySide.jsx';
-import { Interlaced } from './Interlaced.jsx';
 import { CameraBackground, CardboardRig } from './Cardboard.jsx';
 import { GazeReticle } from './Gaze.jsx';
 import { PhoneStereoCameraFeed, PhoneStereoXR } from './PhoneStereo.jsx';
@@ -56,7 +55,7 @@ const PICK_ROTATION = [0, -0.3, 0.25];
 // held in that hand, and the right controller's ray presses its buttons. A
 // grip takes it to dock on either controller or the NeckFrame (see Grab.jsx).
 
-// The windowed 3D views (SBS, Interlaced) draw the panel in the scene, as XR
+// The windowed 3D view (SBS) draws the panel in the scene, as XR
 // does, so each eye sees it: held before the camera at its top left, where
 // the page's panel sits, this far away, a little nearer than the board, and
 // as big on the screen as the page's panel (before SBS squeezes each eye to
@@ -524,8 +523,7 @@ export default function Scene({
         <Backdrop background={state.background} />
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
-      {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {(state.view === 'sbs' || state.view === 'interlaced') && !immersive && <StereoMenu menu={menu} />}
+      {state.view === 'sbs' && !immersive && <StereoMenu menu={menu} />}
       {phoneStereo && <PhoneStereoXR />}
       {phoneStereo && state.passthrough && (
         <PhoneStereoCameraFeed

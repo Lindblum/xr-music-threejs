@@ -11,7 +11,7 @@ A fretboard of note cubes you play by touch in WebXR, or with the mouse on deskt
 - **Sound**: 13 sampled instruments, auto-tuned on load, plus four synth waves. Echo, quantize and velocity sensitivity.
 - **Progressions**: 13 stock progressions or build your own from degree triads, alterations, qualities and 7th/6th/add9 modifiers. Drag to reorder, play/pause/stop, and optionally hear each chord as it lands.
 - **XR**: grab, move, scale and rotate the board; bend notes by pulling along the frets; a hand-held menu panel you can dock to either controller or the board; haptics on every touch.
-- **Views**: solid, skybox or passthrough backgrounds; side-by-side and interlaced 3D; phone AR and phone-viewer stereo.
+- **Views**: solid, skybox or passthrough backgrounds; side-by-side 3D; phone AR and phone-viewer stereo.
 
 Settings and the progression persist in a cookie.
 

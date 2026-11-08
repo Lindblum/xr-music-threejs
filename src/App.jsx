@@ -40,8 +40,8 @@ import {
 import { setVibration } from './Touch.jsx';
 import { initSound, playTick, setVolume, wakeSoundInXR } from './sound.js';
 
-// View Mode: Normal, 3D: SBS (half side-by-side, for 3D TVs and projectors)
-// and 3D: Interlaced (alternate rows, for passive 3D monitors) are windowed.
+// View Mode: Normal and 3D: SBS (half side-by-side, for 3D TVs and projectors)
+// are windowed.
 // The XR views start a session, only from a tap, as browsers require, as in
 // the 4D viewer:
 //   XR: Headset (headsets) starts an AR session where supported (so every
@@ -509,7 +509,7 @@ export default function App() {
   const phone = useMemo(isPhone, []);
   const headset = useMemo(isHeadsetBrowser, []);
   const passthroughAvailable = Boolean(support.ar) || phone;
-  const [screenView, setScreenView] = useState('normal'); // outside XR: 'normal' | 'sbs' | 'interlaced'
+  const [screenView, setScreenView] = useState('normal'); // outside XR: 'normal' | 'sbs'
   const [phoneStereo, setPhoneStereo] = useState(true); // phone XR: two lens-corrected eyes
   const [handheld, setHandheld] = useState(false); // the motion-sensor view is showing (phones without AR)
   const holding = useRef(false); // a finger held on the motion-sensor view's screen
@@ -784,7 +784,7 @@ export default function App() {
       {handheld && <CardboardOverlay split={phoneStereo} onHold={(held) => (holding.current = held)} onExit={exitXR} />}
       {/* the menu on the screen: windowed, or over XR: Phone AR (in the AR session's DOM overlay, or over the motion-sensor view) */}
       {/* (the windowed 3D views draw it in the scene instead, for both eyes: see Scene.jsx) */}
-      {((!inXR && view !== 'sbs' && view !== 'interlaced') || screenMenu) &&
+      {((!inXR && view !== 'sbs') || screenMenu) &&
         (sessionActive
           ? createPortal(<ScreenMenu menu={menu} notes={notes} pressing={menuPressed} viewToggle={viewToggle} />, store.getState().domOverlayRoot)
           : <ScreenMenu menu={menu} notes={notes} pressing={menuPressed} viewToggle={viewToggle} />)}

@@ -108,13 +108,13 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 /* a slider (Accessibility): its name and value, then the track */
 .menu-btn.menu-slider { cursor: default; }
-.menu-slider input[type='range'] { flex: none; width: calc(120px * var(--text-scale)); margin: 0; accent-color: #6f8dff; cursor: pointer; }
+.menu-slider input[type='range'] { flex: none; width: calc(120px * var(--text-scale)); margin: 0; accent-color: #5aa0ff; cursor: pointer; }
 .menu-sizer .menu-slider input[type='range'] { visibility: hidden; }
 /* ...on a panel in the scene (see Menu.jsx), a track of the same size: dragged along, or pressed where it should go */
 .menu-track { position: relative; flex: none; width: calc(120px * var(--text-scale)); height: calc(16px * var(--text-scale)); cursor: pointer; touch-action: none; }
 .menu-track::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); }
-.menu-track-fill { position: absolute; left: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: #6f8dff; }
-.menu-track-knob { position: absolute; top: 50%; width: calc(14px * var(--text-scale)); height: calc(14px * var(--text-scale)); border-radius: 50%; background: #6f8dff; transform: translate(-50%, -50%); }
+.menu-track-fill { position: absolute; left: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: #5aa0ff; }
+.menu-track-knob { position: absolute; top: 50%; width: calc(14px * var(--text-scale)); height: calc(14px * var(--text-scale)); border-radius: 50%; background: #5aa0ff; transform: translate(-50%, -50%); }
 /* a field to type into, in a button's shape */
 .menu-input { min-width: 0; font: inherit; font-size: calc(13px * var(--text-scale)); color: var(--text); background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.4); user-select: text; }
 .menu-input:focus { outline: 2px solid rgba(150, 175, 255, 0.9); outline-offset: 0; }
